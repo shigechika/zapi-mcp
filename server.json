@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.shigechika/zapi-mcp",
+  "title": "Zabbix API MCP",
+  "description": "MCP server for the Zabbix API — daily brief, problems, hosts, items",
+  "repository": {
+    "url": "https://github.com/shigechika/zapi-mcp",
+    "source": "github"
+  },
+  "version": "0.2.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "zapi-mcp",
+      "version": "0.2.0",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

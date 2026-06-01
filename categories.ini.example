@@ -1,0 +1,35 @@
+# Example monitoring categories for `daily_brief`.
+#
+# Copy to a file (e.g. categories.ini), edit the tags/keys to match your
+# Zabbix, and point ZABBIX_CATEGORIES_INI at it. This file is only an example;
+# keep your real categories.ini out of version control (it is gitignored).
+#
+# Each [section] is one category in the daily brief.
+#   name             Display label (defaults to the section name)
+#   tag              Zabbix host tag that identifies the group (required)
+#   tag_value        If set, the tag must equal this value (Equal); otherwise
+#                    any host carrying the tag matches (Exists)
+#   item_key         Exact item key to report current values for (e.g. a
+#                    per-host usage gauge keyed "usage")
+#   item_key_search  Substring match on the item key, for keys that embed an
+#                    id (e.g. ".usage" catches "pool.node0.usage"). Use this
+#                    OR item_key; if neither is set the section reports active
+#                    problems for the tag instead.
+#   threshold        Optional; values >= this are flagged (⚠️) in the output
+
+[dhcp]
+name = DHCP Pool Usage
+tag = dhcp-pool-usage
+item_key = usage
+threshold = 80
+
+[snat]
+name = SNAT Session Pool
+tag = snat-pool-usage
+item_key_search = .usage
+threshold = 80
+
+[core]
+name = Core Network
+tag = role
+tag_value = main
