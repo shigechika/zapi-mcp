@@ -296,16 +296,25 @@ def health_check() -> dict:
     Lightweight: it authenticates once (reusing the cached session) and reads the
     detected API version — it does NOT scan problems or items.
 
-    Returns ``status`` (healthy / degraded / error), ``service``, ``version``,
-    ``zabbix_url``, ``zabbix_api_version``, ``auth`` (ok / error / missing-env),
-    and ``categories`` (the configured daily_brief section names).
+    Always returns the same keys: ``status`` (healthy / degraded / error),
+    ``service``, ``version``, ``zabbix_url``, ``zabbix_api_version`` (None until a
+    backend connection succeeds), ``auth`` (ok / error / missing-env), and
+    ``categories`` (the configured daily_brief section names). On a degraded or
+    error result, ``detail`` carries the reason and ``categories_error`` the
+    category-parse failure (when that is the cause).
     """
     from zapi_mcp import __version__
 
+    # Fixed shape: every key is present regardless of outcome, so callers can
+    # read it uniformly and rely on `status` to judge health.
     result: dict = {
         "status": "healthy",
         "service": "zapi-mcp",
         "version": __version__,
+        "zabbix_url": os.environ.get("ZABBIX_URL", ""),
+        "zabbix_api_version": None,
+        "auth": "unknown",
+        "categories": [],
     }
 
     # Category loading is local (no network), so report it regardless of whether
@@ -315,14 +324,12 @@ def health_check() -> dict:
         result["categories"] = [c.name for c in load_categories()]
     except Exception as e:  # noqa: BLE001 — surface config errors, don't sink the check
         result["status"] = "degraded"
-        result["categories"] = []
         result["categories_error"] = str(e)
 
     # Backend: building the client detects the API version (apiinfo.version, no
     # auth) and logs in. Reuse the cached singleton so this is one cheap round trip.
     try:
         client = _client()
-        result["zabbix_url"] = os.environ.get("ZABBIX_URL", "")
         result["zabbix_api_version"] = client.version
         result["auth"] = "ok"
     except KeyError as e:
