@@ -177,6 +177,77 @@ def test_acknowledge_empty_ids():
     assert out == "No event IDs provided."
 
 
+# ---- health_check ---------------------------------------------------------
+
+
+def test_health_check_reports_version_and_backend(monkeypatch):
+    from zapi_mcp import __version__
+
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+    with make_router(version="6.0.42"):
+        out = _call(server.health_check)()
+    assert out["status"] == "healthy"
+    assert out["service"] == "zapi-mcp"
+    assert out["version"] == __version__
+    assert out["zabbix_api_version"] == "6.0.42"
+    assert out["auth"] == "ok"
+    assert out["categories"] == []  # none configured = healthy, empty list
+
+
+def test_health_check_lists_configured_categories(monkeypatch, tmp_path):
+    p = tmp_path / "cats.ini"
+    p.write_text("[dhcp]\nname = DHCP Pool Usage\ntag = dhcp-pool-usage\nitem_key = usage\nthreshold = 80\n")
+    monkeypatch.setenv("ZABBIX_CATEGORIES_INI", str(p))
+    with make_router():
+        out = _call(server.health_check)()
+    assert out["status"] == "healthy"
+    assert out["categories"] == ["DHCP Pool Usage"]
+
+
+def test_health_check_missing_env_is_error(monkeypatch):
+    """A missing connection env var yields status=error, not a crash."""
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+    monkeypatch.delenv("ZABBIX_URL", raising=False)
+    out = _call(server.health_check)()  # no router: must not reach the network
+    assert out["status"] == "error"
+    assert out["auth"] == "missing-env"
+    assert "ZABBIX_URL" in out["detail"]
+    assert out["version"]  # version is still reported even when the backend is down
+    assert out["zabbix_api_version"] is None  # fixed shape: key present, no value yet
+
+
+def test_health_check_backend_error_is_degraded(monkeypatch):
+    """A Zabbix auth/connection failure yields degraded + auth=error, client reset."""
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+
+    def handler(request):
+        payload = json.loads(request.content)
+        if payload["method"] == "apiinfo.version":
+            return httpx.Response(200, json={"result": "6.0.0", "id": 1})
+        return httpx.Response(200, json={"error": {"message": "Incorrect user name or password"}, "id": 1})
+
+    with respx.mock(assert_all_called=False) as router:
+        router.post(ENDPOINT).mock(side_effect=handler)
+        out = _call(server.health_check)()
+    assert out["status"] == "degraded"
+    assert out["auth"] == "error"
+    assert "Zabbix error" in out["detail"]
+    assert server._CLIENT is None  # reset after error so the next call re-auths
+
+
+def test_health_check_bad_categories_is_degraded(monkeypatch, tmp_path):
+    """A malformed categories INI degrades status but leaves the backend healthy."""
+    p = tmp_path / "bad.ini"
+    p.write_text("this is not a valid ini\nno section header here\n")
+    monkeypatch.setenv("ZABBIX_CATEGORIES_INI", str(p))
+    with make_router():
+        out = _call(server.health_check)()
+    assert out["status"] == "degraded"
+    assert out["categories"] == []
+    assert "categories_error" in out
+    assert out["auth"] == "ok"  # backend reachable; only category parsing failed
+
+
 # ---- daily_brief ----------------------------------------------------------
 
 
