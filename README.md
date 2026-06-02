@@ -19,6 +19,7 @@ forward-compatible with 6.4 / 7.0 (`username` + `Authorization: Bearer`).
 
 | Tool | Description |
 |------|-------------|
+| `health_check` | Server version, Zabbix connectivity/auth, detected API version, and configured `daily_brief` categories — call at session start or after a timeout |
 | `daily_brief` | Morning patrol: active problems (Warning+) plus one section per configured category |
 | `get_problems` | Active problems by severity and tag, newest-first with age; header shows the true total (`showing N of TOTAL` when capped); output includes `eventid` |
 | `get_hosts` | List hosts filtered by role/tag/group, with IP and tags |

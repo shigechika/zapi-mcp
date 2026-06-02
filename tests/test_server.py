@@ -177,6 +177,44 @@ def test_acknowledge_empty_ids():
     assert out == "No event IDs provided."
 
 
+# ---- health_check ---------------------------------------------------------
+
+
+def test_health_check_reports_version_and_backend(monkeypatch):
+    from zapi_mcp import __version__
+
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+    with make_router(version="6.0.42"):
+        out = _call(server.health_check)()
+    assert out["status"] == "healthy"
+    assert out["service"] == "zapi-mcp"
+    assert out["version"] == __version__
+    assert out["zabbix_api_version"] == "6.0.42"
+    assert out["auth"] == "ok"
+    assert out["categories"] == []  # none configured = healthy, empty list
+
+
+def test_health_check_lists_configured_categories(monkeypatch, tmp_path):
+    p = tmp_path / "cats.ini"
+    p.write_text("[dhcp]\nname = DHCP Pool Usage\ntag = dhcp-pool-usage\nitem_key = usage\nthreshold = 80\n")
+    monkeypatch.setenv("ZABBIX_CATEGORIES_INI", str(p))
+    with make_router():
+        out = _call(server.health_check)()
+    assert out["status"] == "healthy"
+    assert out["categories"] == ["DHCP Pool Usage"]
+
+
+def test_health_check_missing_env_is_error(monkeypatch):
+    """A missing connection env var yields status=error, not a crash."""
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+    monkeypatch.delenv("ZABBIX_URL", raising=False)
+    out = _call(server.health_check)()  # no router: must not reach the network
+    assert out["status"] == "error"
+    assert out["auth"] == "missing-env"
+    assert "ZABBIX_URL" in out["detail"]
+    assert out["version"]  # version is still reported even when the backend is down
+
+
 # ---- daily_brief ----------------------------------------------------------
 
 

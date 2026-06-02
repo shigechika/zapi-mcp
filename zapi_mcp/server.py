@@ -287,6 +287,58 @@ def _brief_problem_category(client: ZapiClient, cat: Category, now_ts: int, rece
 
 
 @mcp.tool()
+def health_check() -> dict:
+    """Report server version, Zabbix connectivity, and configured categories.
+
+    Call this at session start (or after a tool-call timeout) to confirm the MCP
+    is up, see which version is running, verify the Zabbix backend is reachable
+    and authenticated, and list the daily_brief categories that are loaded.
+    Lightweight: it authenticates once (reusing the cached session) and reads the
+    detected API version — it does NOT scan problems or items.
+
+    Returns ``status`` (healthy / degraded / error), ``service``, ``version``,
+    ``zabbix_url``, ``zabbix_api_version``, ``auth`` (ok / error / missing-env),
+    and ``categories`` (the configured daily_brief section names).
+    """
+    from zapi_mcp import __version__
+
+    result: dict = {
+        "status": "healthy",
+        "service": "zapi-mcp",
+        "version": __version__,
+    }
+
+    # Category loading is local (no network), so report it regardless of whether
+    # the Zabbix backend is reachable. A genuine parse error degrades the server;
+    # an empty list (nothing configured) is a healthy, expected state.
+    try:
+        result["categories"] = [c.name for c in load_categories()]
+    except Exception as e:  # noqa: BLE001 — surface config errors, don't sink the check
+        result["status"] = "degraded"
+        result["categories"] = []
+        result["categories_error"] = str(e)
+
+    # Backend: building the client detects the API version (apiinfo.version, no
+    # auth) and logs in. Reuse the cached singleton so this is one cheap round trip.
+    try:
+        client = _client()
+        result["zabbix_url"] = os.environ.get("ZABBIX_URL", "")
+        result["zabbix_api_version"] = client.version
+        result["auth"] = "ok"
+    except KeyError as e:
+        result["status"] = "error"
+        result["auth"] = "missing-env"
+        result["detail"] = f"Missing environment variable: {e}"
+    except ZapiError as e:
+        reset_client()
+        result["status"] = "degraded"
+        result["auth"] = "error"
+        result["detail"] = f"Zabbix error: {e}"
+
+    return result
+
+
+@mcp.tool()
 def daily_brief() -> str:
     """Morning patrol summary.
 
