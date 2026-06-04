@@ -1193,11 +1193,23 @@ wheels = [
 ]
 
 [[package]]
+name = "zapi-lib"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/69/3e/b8474ebbc522aeb464da81b718a895ec2be8df44830d4adce09a61105d37/zapi_lib-0.2.0.tar.gz", hash = "sha256:c8aba88610a70179ea65ba79a33870c7d233aa6a818922ff3bfb2e0c17cc832f", size = 10678, upload-time = "2026-06-04T08:24:52.879Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b8/9e/b15d3594da83608731283da3d7818de320096c2d1e308884d1aeb37dd292/zapi_lib-0.2.0-py3-none-any.whl", hash = "sha256:4f4c81232ab6047a846a2848cb95545be56edd288d5008e349d1699e40a23fd2", size = 7203, upload-time = "2026-06-04T08:24:51.681Z" },
+]
+
+[[package]]
 name = "zapi-mcp"
 source = { editable = "." }
 dependencies = [
-    { name = "httpx" },
     { name = "mcp" },
+    { name = "zapi-lib" },
 ]
 
 [package.dev-dependencies]
@@ -1211,8 +1223,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "httpx" },
     { name = "mcp", specifier = ">=1.0" },
+    { name = "zapi-lib", specifier = ">=0.1,<1" },
 ]
 
 [package.metadata.requires-dev]
