@@ -355,3 +355,29 @@ def test_set_host_tag_strips_readonly_tag_fields():
         sp = [t for t in tags if t["tag"] == "speedtest-z"]
         assert sp == [{"tag": "speedtest-z", "value": "0.8.5"}]  # replaced, single entry
         assert result == {"hostids": ["100"]}  # documented return value
+
+
+def test_init_closes_http_client_on_failure(monkeypatch):
+    """A failure during __init__ (api_version/_login) closes the httpx.Client
+    rather than leaking it -- the with-statement cannot protect construction."""
+    closed = {"n": 0}
+    real_close = httpx.Client.close
+
+    def spy_close(self):
+        closed["n"] += 1
+        return real_close(self)
+
+    monkeypatch.setattr(httpx.Client, "close", spy_close)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        if payload["method"] == "apiinfo.version":
+            return httpx.Response(200, json={"result": "6.0.0", "id": 1})
+        # user.login fails -> __init__ raises after the http client is created
+        return httpx.Response(200, json={"error": {"message": "Login name or password is incorrect."}, "id": 1})
+
+    with respx.mock(assert_all_called=False) as router:
+        router.post(ENDPOINT).mock(side_effect=handler)
+        with pytest.raises(ZapiAuthError):
+            ZapiClient("https://zabbix.example.com", "u", "bad")
+    assert closed["n"] >= 1  # closed on failed init, not leaked
