@@ -317,3 +317,41 @@ def test_set_host_tag_raises_when_host_missing():
         c = ZapiClient("https://zabbix.example.com", "u", "p")
         with pytest.raises(ZapiError, match="host not found"):
             c.set_host_tag("nope", "speedtest-z", "0.8.5")
+
+
+def test_set_host_tag_strips_readonly_tag_fields():
+    """Zabbix 6.4+ returns a read-only 'automatic' field on each tag; it must
+    not be re-submitted to host.update, which rejects unknown tag keys.
+
+    Also pins the data-fetch contract the merge relies on (selectTags=extend +
+    exact host filter) and that multiple existing tags survive.
+    """
+    host = {
+        "hostid": "100",
+        "host": "pool-a",
+        "name": "Pool A",
+        "status": "0",
+        "tags": [
+            {"tag": "location", "value": "tokyo", "automatic": "0"},
+            {"tag": "role", "value": "edge", "automatic": "0"},
+            {"tag": "speedtest-z", "value": "0.8.4", "automatic": "0"},
+        ],
+        "interfaces": [{"ip": "192.0.2.1"}],
+    }
+    r = make_router(results={"host.get": [host], "host.update": {"hostids": ["100"]}})
+    with r:
+        c = ZapiClient("https://zabbix.example.com", "u", "p")
+        result = c.set_host_tag("pool-a", "speedtest-z", "0.8.5")
+        # The merge depends on host.get returning tags for the exact host.
+        get_call = next(x["payload"] for x in r.captured if x["payload"]["method"] == "host.get")
+        assert get_call["params"]["selectTags"] == "extend"
+        assert get_call["params"]["filter"] == {"host": "pool-a"}
+        # host.update payload: every tag carries only the writable keys.
+        upd = next(x["payload"] for x in r.captured if x["payload"]["method"] == "host.update")
+        tags = upd["params"]["tags"]
+        assert all(set(t.keys()) == {"tag", "value"} for t in tags)
+        assert {"tag": "location", "value": "tokyo"} in tags  # preserved, normalized
+        assert {"tag": "role", "value": "edge"} in tags  # preserved, normalized
+        sp = [t for t in tags if t["tag"] == "speedtest-z"]
+        assert sp == [{"tag": "speedtest-z", "value": "0.8.5"}]  # replaced, single entry
+        assert result == {"hostids": ["100"]}  # documented return value

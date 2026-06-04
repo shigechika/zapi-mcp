@@ -42,8 +42,15 @@ class ZapiClient:
         self._http = httpx.Client(timeout=timeout, headers={"Content-Type": "application/json"})
         self._token: str | None = None
         self._bearer = False  # use Authorization: Bearer header instead of `auth` field
-        self.version = self.api_version()
-        self._token = self._login(user, password)
+        # api_version()/_login() touch the network and may raise; __enter__/
+        # __exit__ do not run when the constructor itself raises, so close the
+        # http client here to avoid leaking it on a failed connection/login.
+        try:
+            self.version = self.api_version()
+            self._token = self._login(user, password)
+        except BaseException:
+            self._http.close()
+            raise
 
     # ------------------------------------------------------------------
     # Low-level call
@@ -167,7 +174,11 @@ class ZapiClient:
         if not hosts:
             raise ZapiError(f"host not found: {host}")
         target = hosts[0]
-        tags = [t for t in target.get("tags", []) if t.get("tag") != tag]
+        # host.update accepts only {tag, value} per tag; host.get with
+        # selectTags=extend also returns a read-only "automatic" field on
+        # Zabbix 6.4+, which host.update rejects. Rebuild preserved tags with
+        # the writable keys only, dropping the same-named tag (replaced below).
+        tags = [{"tag": t["tag"], "value": t.get("value", "")} for t in target.get("tags", []) if t.get("tag") != tag]
         tags.append({"tag": tag, "value": value})
         return self._call("host.update", {"hostid": target["hostid"], "tags": tags})
 
