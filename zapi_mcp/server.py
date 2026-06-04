@@ -251,9 +251,17 @@ def _brief_item_category(client: ZapiClient, cat: Category) -> list[str]:
         lines.append(f"No items matching '{which}' found.")
         return lines
 
-    ranked = sorted(items, key=_item_value, reverse=True)
-    over = [it for it in ranked if cat.threshold is not None and _item_value(it) >= cat.threshold]
-    # Show every item at/over threshold, then fill to the cap with the highest.
+    below = cat.direction == "below"
+    # "below" surfaces the worst (lowest) values first; "above" the highest.
+    ranked = sorted(items, key=_item_value, reverse=not below)
+
+    def _flagged(value: float) -> bool:
+        if cat.threshold is None:
+            return False
+        return value <= cat.threshold if below else value >= cat.threshold
+
+    over = [it for it in ranked if _flagged(_item_value(it))]
+    # Show every item past the threshold, then fill to the cap with the worst.
     shown = ranked[: max(BRIEF_ITEM_LIMIT, len(over))]
 
     for item in shown:
@@ -264,14 +272,15 @@ def _brief_item_category(client: ZapiClient, cat: Category) -> list[str]:
         label = host
         if name and name != cat.item_key:
             label = f"{host} {name}".strip()
-        flag = "  ⚠️" if cat.threshold is not None and _item_value(item) >= cat.threshold else ""
+        flag = "  ⚠️" if _flagged(_item_value(item)) else ""
         units = item.get("units") or ""
         unit_str = f" {units}" if units else ""
         lines.append(f"- {label}: {_fmt_value(item)}{unit_str}{flag}  ({_fmt_time(item.get('lastclock'))})")
 
     remaining = len(ranked) - len(shown)
     if remaining > 0:
-        lines.append(f"- … and {remaining} more (≤ {_fmt_value(shown[-1])})")
+        bound = "≥" if below else "≤"
+        lines.append(f"- … and {remaining} more ({bound} {_fmt_value(shown[-1])})")
     return lines
 
 
