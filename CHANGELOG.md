@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/shigechika/zapi-mcp/compare/v0.2.0...v0.3.0) (2026-06-04)
+
+
+### Features
+
+* add health_check tool ([#4](https://github.com/shigechika/zapi-mcp/issues/4)) ([e13edfd](https://github.com/shigechika/zapi-mcp/commit/e13edfdc0758282d755ee58224ef8b2da66c82ce))
+* add ZapiClient.set_host_tag for upserting host tags ([#5](https://github.com/shigechika/zapi-mcp/issues/5)) ([406cc54](https://github.com/shigechika/zapi-mcp/commit/406cc54e3269f7269d212f049d957db37419e222))
+
 ## 0.2.0 (2026-06-01)
 
 > Note: git history was reset before this repository was made public, so the
