@@ -15,7 +15,10 @@
 #                    id (e.g. ".usage" catches "pool.node0.usage"). Use this
 #                    OR item_key; if neither is set the section reports active
 #                    problems for the tag instead.
-#   threshold        Optional; values >= this are flagged (⚠️) in the output
+#   threshold        Optional; values past this are flagged (⚠️) in the output
+#   direction        Optional; "above" (default) flags values >= threshold,
+#                    "below" flags values <= threshold and lists the lowest
+#                    first (e.g. speed metrics where a drop is the alert)
 
 [dhcp]
 name = DHCP Pool Usage
@@ -33,3 +36,12 @@ threshold = 80
 name = Core Network
 tag = role
 tag_value = main
+
+# Speed metrics: alert when speed DROPS below a floor (direction = below).
+# The `speedtest-z` host tag is stamped by speedtest-z >= 0.9.0.
+[speedtest]
+name = Speedtest (speedtest-z)
+tag = speedtest-z
+item_key_search = download
+threshold = 100
+direction = below
