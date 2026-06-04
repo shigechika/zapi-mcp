@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/shigechika/zapi-mcp/compare/v0.4.0...v0.5.0) (2026-06-04)
+
+
+### Features
+
+* depend on zapi-lib for the Zabbix client ([#9](https://github.com/shigechika/zapi-mcp/issues/9)) ([a2a785a](https://github.com/shigechika/zapi-mcp/commit/a2a785a904455ed4ba82430e851df20dd29b82d8))
+
 ## [0.4.0](https://github.com/shigechika/zapi-mcp/compare/v0.3.0...v0.4.0) (2026-06-04)
 
 
