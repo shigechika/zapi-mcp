@@ -70,3 +70,21 @@ def test_item_key_search_makes_items_category(tmp_path):
     assert c.item_key is None
     assert c.item_key_search == ".usage"
     assert c.kind == "items"
+
+
+def test_direction_defaults_to_above(tmp_path):
+    p = tmp_path / "cats.ini"
+    p.write_text("[dhcp]\ntag = dhcp\nitem_key = usage\n")
+    assert load_categories(str(p))[0].direction == "above"
+
+
+def test_direction_below_parsed(tmp_path):
+    p = tmp_path / "cats.ini"
+    p.write_text("[speedtest]\ntag = speedtest-z\nitem_key_search = download\ndirection = below\n")
+    assert load_categories(str(p))[0].direction == "below"
+
+
+def test_direction_invalid_falls_back_to_above(tmp_path):
+    p = tmp_path / "cats.ini"
+    p.write_text("[x]\ntag = t\nitem_key = k\ndirection = sideways\n")
+    assert load_categories(str(p))[0].direction == "above"

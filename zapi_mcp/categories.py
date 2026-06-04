@@ -11,7 +11,9 @@ Each ``[section]`` defines one category::
     name = DHCP Pool Usage
     tag = dhcp-pool-usage      ; Zabbix host tag identifying the group
     item_key = usage           ; if set -> report current item values
-    threshold = 80             ; optional; flag values >= this
+    threshold = 80             ; optional; flag values past the threshold
+    direction = above          ; optional; "above" (default) flags >= threshold,
+                               ;   "below" flags <= threshold (e.g. speed drops)
 
     [core]
     name = Core Network
@@ -32,6 +34,11 @@ def _safe_float(value: str | None) -> float | None:
         return None
 
 
+def _normalize_direction(value: str | None) -> str:
+    """Return 'below' only for an explicit 'below'; default to 'above'."""
+    return "below" if (value or "").strip().lower() == "below" else "above"
+
+
 @dataclass
 class Category:
     """One monitoring category for the daily brief."""
@@ -43,6 +50,7 @@ class Category:
     item_key: str | None = None
     item_key_search: str | None = None
     threshold: float | None = None
+    direction: str = "above"  # "above": flag >= threshold; "below": flag <= threshold
 
     @property
     def kind(self) -> str:
@@ -77,6 +85,7 @@ def load_categories(path: str | None = None) -> list[Category]:
                 item_key=s.get("item_key") or None,
                 item_key_search=s.get("item_key_search") or None,
                 threshold=_safe_float(s.get("threshold")),
+                direction=_normalize_direction(s.get("direction")),
             )
         )
     return categories

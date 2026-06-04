@@ -296,6 +296,28 @@ def test_daily_brief_item_category_search_key_and_rounds(monkeypatch, tmp_path):
     assert call["params"]["search"] == {"key_": ".usage"}
 
 
+def test_daily_brief_below_threshold_flags_low_values(monkeypatch, tmp_path):
+    """direction=below flags values <= threshold (e.g. speed dropping) and
+    surfaces the lowest first (speedtest-style)."""
+    p = tmp_path / "cats.ini"
+    p.write_text(
+        "[speedtest]\nname = Speedtest\ntag = speedtest-z\n"
+        "item_key_search = download\nthreshold = 100\ndirection = below\n"
+    )
+    monkeypatch.setenv("ZABBIX_CATEGORIES_INI", str(p))
+    slow = dict(SAMPLE_ITEM, name="cloudflare.download", key_="cloudflare.download", lastvalue="42.0")
+    fast = dict(SAMPLE_ITEM, name="ookla.download", key_="ookla.download", lastvalue="950.0")
+    r = make_router(results={"problem.get": [], "host.get": [SAMPLE_HOST], "item.get": [fast, slow]})
+    with r:
+        out = _call(server.daily_brief)()
+    assert "Speedtest" in out
+    slow_line = next(ln for ln in out.splitlines() if "42" in ln)
+    fast_line = next(ln for ln in out.splitlines() if "950" in ln)
+    assert "⚠️" in slow_line  # 42 <= threshold 100 -> flagged
+    assert "⚠️" not in fast_line  # 950 > 100 -> not flagged
+    assert out.index("42") < out.index("950")  # below surfaces the lowest first
+
+
 def test_fmt_value_rounds_and_handles_empty():
     assert server._fmt_value({"lastvalue": "70.40816"}) == "70.4"
     assert server._fmt_value({"lastvalue": ""}) == "—"
