@@ -268,3 +268,52 @@ def test_http_error_wrapped():
         c = ZapiClient("https://zabbix.example.com", "u", "p")
         with pytest.raises(ZapiError, match="HTTP 500"):
             c.get_problems()
+
+
+# ---- set_host_tag (write) -------------------------------------------------
+
+
+def test_set_host_tag_preserves_other_tags():
+    """Upserting a new tag keeps the host's existing tags."""
+    r = make_router(results={"host.get": [SAMPLE_HOST], "host.update": {"hostids": ["100"]}})
+    with r:
+        c = ZapiClient("https://zabbix.example.com", "u", "p")
+        c.set_host_tag("pool-a", "speedtest-z", "0.8.5")
+        call = next(x["payload"] for x in r.captured if x["payload"]["method"] == "host.update")
+        assert call["params"]["hostid"] == "100"
+        tags = call["params"]["tags"]
+        assert {"tag": "dhcp-pool-usage", "value": "1.0"} in tags  # existing kept
+        assert {"tag": "speedtest-z", "value": "0.8.5"} in tags  # new added
+
+
+def test_set_host_tag_replaces_same_name():
+    """A tag with the same name is replaced (not duplicated); others survive."""
+    host = {
+        "hostid": "100",
+        "host": "pool-a",
+        "name": "Pool A",
+        "status": "0",
+        "tags": [
+            {"tag": "speedtest-z", "value": "0.8.4"},
+            {"tag": "location", "value": "tokyo"},
+        ],
+        "interfaces": [{"ip": "192.0.2.1"}],
+    }
+    r = make_router(results={"host.get": [host], "host.update": {"hostids": ["100"]}})
+    with r:
+        c = ZapiClient("https://zabbix.example.com", "u", "p")
+        c.set_host_tag("pool-a", "speedtest-z", "0.8.5")
+        call = next(x["payload"] for x in r.captured if x["payload"]["method"] == "host.update")
+        tags = call["params"]["tags"]
+        assert {"tag": "location", "value": "tokyo"} in tags  # untouched
+        sp = [t for t in tags if t["tag"] == "speedtest-z"]
+        assert sp == [{"tag": "speedtest-z", "value": "0.8.5"}]  # replaced, single entry
+
+
+def test_set_host_tag_raises_when_host_missing():
+    """An unknown host surfaces as ZapiError rather than a silent no-op."""
+    r = make_router(results={"host.get": []})
+    with r:
+        c = ZapiClient("https://zabbix.example.com", "u", "p")
+        with pytest.raises(ZapiError, match="host not found"):
+            c.set_host_tag("nope", "speedtest-z", "0.8.5")

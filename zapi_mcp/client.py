@@ -153,6 +153,25 @@ class ZapiClient:
         return self._call("host.get", params)
 
     # ------------------------------------------------------------------
+    # Host tags (write)
+    # ------------------------------------------------------------------
+    def set_host_tag(self, host: str, tag: str, value: str) -> dict:
+        """Upsert one host tag by name, preserving the host's other tags.
+
+        Zabbix ``host.update`` replaces the entire tag set, so the host's
+        current tags are fetched first and merged: a tag with the same name is
+        replaced, every other tag is kept. Raises ``ZapiError`` when the host
+        is not found. Returns the ``host.update`` result.
+        """
+        hosts = self.get_hosts(host=host)
+        if not hosts:
+            raise ZapiError(f"host not found: {host}")
+        target = hosts[0]
+        tags = [t for t in target.get("tags", []) if t.get("tag") != tag]
+        tags.append({"tag": tag, "value": value})
+        return self._call("host.update", {"hostid": target["hostid"], "tags": tags})
+
+    # ------------------------------------------------------------------
     # Items (current values)
     # ------------------------------------------------------------------
     def get_items(
