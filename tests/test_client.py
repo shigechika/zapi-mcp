@@ -268,3 +268,116 @@ def test_http_error_wrapped():
         c = ZapiClient("https://zabbix.example.com", "u", "p")
         with pytest.raises(ZapiError, match="HTTP 500"):
             c.get_problems()
+
+
+# ---- set_host_tag (write) -------------------------------------------------
+
+
+def test_set_host_tag_preserves_other_tags():
+    """Upserting a new tag keeps the host's existing tags."""
+    r = make_router(results={"host.get": [SAMPLE_HOST], "host.update": {"hostids": ["100"]}})
+    with r:
+        c = ZapiClient("https://zabbix.example.com", "u", "p")
+        c.set_host_tag("pool-a", "speedtest-z", "0.8.5")
+        call = next(x["payload"] for x in r.captured if x["payload"]["method"] == "host.update")
+        assert call["params"]["hostid"] == "100"
+        tags = call["params"]["tags"]
+        assert {"tag": "dhcp-pool-usage", "value": "1.0"} in tags  # existing kept
+        assert {"tag": "speedtest-z", "value": "0.8.5"} in tags  # new added
+
+
+def test_set_host_tag_replaces_same_name():
+    """A tag with the same name is replaced (not duplicated); others survive."""
+    host = {
+        "hostid": "100",
+        "host": "pool-a",
+        "name": "Pool A",
+        "status": "0",
+        "tags": [
+            {"tag": "speedtest-z", "value": "0.8.4"},
+            {"tag": "location", "value": "tokyo"},
+        ],
+        "interfaces": [{"ip": "192.0.2.1"}],
+    }
+    r = make_router(results={"host.get": [host], "host.update": {"hostids": ["100"]}})
+    with r:
+        c = ZapiClient("https://zabbix.example.com", "u", "p")
+        c.set_host_tag("pool-a", "speedtest-z", "0.8.5")
+        call = next(x["payload"] for x in r.captured if x["payload"]["method"] == "host.update")
+        tags = call["params"]["tags"]
+        assert {"tag": "location", "value": "tokyo"} in tags  # untouched
+        sp = [t for t in tags if t["tag"] == "speedtest-z"]
+        assert sp == [{"tag": "speedtest-z", "value": "0.8.5"}]  # replaced, single entry
+
+
+def test_set_host_tag_raises_when_host_missing():
+    """An unknown host surfaces as ZapiError rather than a silent no-op."""
+    r = make_router(results={"host.get": []})
+    with r:
+        c = ZapiClient("https://zabbix.example.com", "u", "p")
+        with pytest.raises(ZapiError, match="host not found"):
+            c.set_host_tag("nope", "speedtest-z", "0.8.5")
+
+
+def test_set_host_tag_strips_readonly_tag_fields():
+    """Zabbix 6.4+ returns a read-only 'automatic' field on each tag; it must
+    not be re-submitted to host.update, which rejects unknown tag keys.
+
+    Also pins the data-fetch contract the merge relies on (selectTags=extend +
+    exact host filter) and that multiple existing tags survive.
+    """
+    host = {
+        "hostid": "100",
+        "host": "pool-a",
+        "name": "Pool A",
+        "status": "0",
+        "tags": [
+            {"tag": "location", "value": "tokyo", "automatic": "0"},
+            {"tag": "role", "value": "edge", "automatic": "0"},
+            {"tag": "speedtest-z", "value": "0.8.4", "automatic": "0"},
+        ],
+        "interfaces": [{"ip": "192.0.2.1"}],
+    }
+    r = make_router(results={"host.get": [host], "host.update": {"hostids": ["100"]}})
+    with r:
+        c = ZapiClient("https://zabbix.example.com", "u", "p")
+        result = c.set_host_tag("pool-a", "speedtest-z", "0.8.5")
+        # The merge depends on host.get returning tags for the exact host.
+        get_call = next(x["payload"] for x in r.captured if x["payload"]["method"] == "host.get")
+        assert get_call["params"]["selectTags"] == "extend"
+        assert get_call["params"]["filter"] == {"host": "pool-a"}
+        # host.update payload: every tag carries only the writable keys.
+        upd = next(x["payload"] for x in r.captured if x["payload"]["method"] == "host.update")
+        tags = upd["params"]["tags"]
+        assert all(set(t.keys()) == {"tag", "value"} for t in tags)
+        assert {"tag": "location", "value": "tokyo"} in tags  # preserved, normalized
+        assert {"tag": "role", "value": "edge"} in tags  # preserved, normalized
+        sp = [t for t in tags if t["tag"] == "speedtest-z"]
+        assert sp == [{"tag": "speedtest-z", "value": "0.8.5"}]  # replaced, single entry
+        assert result == {"hostids": ["100"]}  # documented return value
+
+
+def test_init_closes_http_client_on_failure(monkeypatch):
+    """A failure during __init__ (api_version/_login) closes the httpx.Client
+    rather than leaking it -- the with-statement cannot protect construction."""
+    closed = {"n": 0}
+    real_close = httpx.Client.close
+
+    def spy_close(self):
+        closed["n"] += 1
+        return real_close(self)
+
+    monkeypatch.setattr(httpx.Client, "close", spy_close)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        if payload["method"] == "apiinfo.version":
+            return httpx.Response(200, json={"result": "6.0.0", "id": 1})
+        # user.login fails -> __init__ raises after the http client is created
+        return httpx.Response(200, json={"error": {"message": "Login name or password is incorrect."}, "id": 1})
+
+    with respx.mock(assert_all_called=False) as router:
+        router.post(ENDPOINT).mock(side_effect=handler)
+        with pytest.raises(ZapiAuthError):
+            ZapiClient("https://zabbix.example.com", "u", "bad")
+    assert closed["n"] >= 1  # closed on failed init, not leaked
