@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/shigechika/zapi-mcp/compare/v0.3.0...v0.4.0) (2026-06-04)
+
+
+### Features
+
+* support below-threshold flagging in daily_brief categories ([#7](https://github.com/shigechika/zapi-mcp/issues/7)) ([4b208c5](https://github.com/shigechika/zapi-mcp/commit/4b208c5c327170708cff43b7bf3d14827e03b0c5))
+
 ## [0.3.0](https://github.com/shigechika/zapi-mcp/compare/v0.2.0...v0.3.0) (2026-06-04)
 
 
