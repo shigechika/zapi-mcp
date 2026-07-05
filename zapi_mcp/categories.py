@@ -76,9 +76,11 @@ def load_categories(path: str | None = None) -> list[Category]:
     # (its own try/except continues past unreadable files instead of
     # raising), which would make a permission-denied categories.ini look
     # identical to "nothing configured". Open it ourselves so a real OSError
-    # propagates instead of being hidden.
+    # propagates instead of being hidden. Encoding is pinned to UTF-8 rather
+    # than the platform default so a malformed file behaves the same way
+    # (and raises the same UnicodeDecodeError) on every OS.
     cp = configparser.ConfigParser()
-    with open(path) as fp:
+    with open(path, encoding="utf-8") as fp:
         cp.read_file(fp, source=path)
 
     categories: list[Category] = []
