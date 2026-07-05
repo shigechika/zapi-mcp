@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/shigechika/zapi-mcp/compare/v0.5.0...v0.5.1) (2026-07-05)
+
+
+### Bug Fixes
+
+* pin categories.ini reads to UTF-8 (fixes Windows CI failure) ([#15](https://github.com/shigechika/zapi-mcp/issues/15)) ([5c037d5](https://github.com/shigechika/zapi-mcp/commit/5c037d593d7823e41f4c081870d8a77fcd533bc0))
+* pre-public cleanup (docs parity, error handling, LICENSE name order) ([#14](https://github.com/shigechika/zapi-mcp/issues/14)) ([d6a62f4](https://github.com/shigechika/zapi-mcp/commit/d6a62f4b8036cf7d724a768c2eca212514de4a98))
+
 ## [0.5.0](https://github.com/shigechika/zapi-mcp/compare/v0.4.0...v0.5.0) (2026-06-04)
 
 
