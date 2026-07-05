@@ -62,7 +62,13 @@ Required environment variables:
 
     from zapi_mcp.server import mcp
 
-    mcp.run()
+    try:
+        mcp.run()
+    except KeyboardInterrupt:
+        # anyio's teardown on SIGINT dumps a 78-line traceback ending in
+        # KeyboardInterrupt; skip it and exit clean like the sibling fleet
+        # MCP servers (junos-mcp, eos-mcp, aruba-central-mcp, keycloak-mcp).
+        os._exit(0)
 
 
 if __name__ == "__main__":
