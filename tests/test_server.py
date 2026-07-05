@@ -251,6 +251,19 @@ def test_health_check_bad_categories_is_degraded(monkeypatch, tmp_path):
 # ---- daily_brief ----------------------------------------------------------
 
 
+def test_daily_brief_bad_categories_reports_error_and_flags(monkeypatch, tmp_path):
+    """A malformed categories INI degrades the brief instead of crashing, and
+    signals the failure via the (text, had_error) tuple the --brief CLI uses
+    for its exit code."""
+    p = tmp_path / "bad.ini"
+    p.write_text("this is not a valid ini\nno section header here\n")
+    monkeypatch.setenv("ZABBIX_CATEGORIES_INI", str(p))
+    with make_router(results={"problem.get": []}):
+        text, had_error = server._daily_brief_text()
+    assert had_error is True
+    assert "Categories not loaded" in text
+
+
 def test_daily_brief_no_categories(monkeypatch):
     monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
     with make_router(results={"problem.get": [SAMPLE_PROBLEM]}):
@@ -279,7 +292,7 @@ def test_daily_brief_item_category_search_key_and_rounds(monkeypatch, tmp_path):
     monkeypatch.setenv("ZABBIX_CATEGORIES_INI", str(p))
     item = dict(
         SAMPLE_ITEM,
-        name="pool.node0.usage",
+        name="Node 0 Usage",
         key_="pool.node0.usage",
         lastvalue="92.345",
     )
@@ -289,7 +302,7 @@ def test_daily_brief_item_category_search_key_and_rounds(monkeypatch, tmp_path):
     # value rounded to 1 decimal, item name shown (label != bare key), flagged
     assert "92.3" in out
     assert "92.345" not in out
-    assert "pool.node0.usage" in out
+    assert "Node 0 Usage" in out
     assert "⚠️" in out
     # client must have searched the key, not filtered exactly
     call = next(x["payload"] for x in r.captured if x["payload"]["method"] == "item.get")

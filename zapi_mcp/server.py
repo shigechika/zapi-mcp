@@ -1,5 +1,6 @@
 """Zabbix API MCP Server — tools."""
 
+import configparser
 import os
 from datetime import datetime
 
@@ -284,6 +285,19 @@ def _brief_item_category(client: ZapiClient, cat: Category) -> list[str]:
     return lines
 
 
+def _load_categories_safe() -> tuple[list[Category], str | None]:
+    """Load daily_brief categories, converting a parse failure to an error string.
+
+    Shared by health_check and daily_brief so both report the identical
+    failure (a malformed/unreadable categories.ini) the same way instead of
+    each hand-rolling its own try/except.
+    """
+    try:
+        return load_categories(), None
+    except (configparser.Error, OSError) as e:
+        return [], str(e)
+
+
 def _brief_problem_category(client: ZapiClient, cat: Category, now_ts: int, recent_window: int) -> list[str]:
     problems, total = _fetch_problems_with_total(client, tags=[tag_filter(cat.tag, cat.tag_value)])
     noun = "problem" if total == 1 else "problems"
@@ -329,11 +343,11 @@ def health_check() -> dict:
     # Category loading is local (no network), so report it regardless of whether
     # the Zabbix backend is reachable. A genuine parse error degrades the server;
     # an empty list (nothing configured) is a healthy, expected state.
-    try:
-        result["categories"] = [c.name for c in load_categories()]
-    except Exception as e:  # noqa: BLE001 — surface config errors, don't sink the check
+    categories, categories_error = _load_categories_safe()
+    result["categories"] = [c.name for c in categories]
+    if categories_error:
         result["status"] = "degraded"
-        result["categories_error"] = str(e)
+        result["categories_error"] = categories_error
 
     # Backend: building the client detects the API version (apiinfo.version, no
     # auth) and logs in. Reuse the cached singleton so this is one cheap round trip.
@@ -354,33 +368,28 @@ def health_check() -> dict:
     return result
 
 
-@mcp.tool()
-def daily_brief() -> str:
-    """Morning patrol summary.
+def _daily_brief_text() -> tuple[str, bool]:
+    """Build the daily_brief text.
 
-    Reports active problems (Warning and above), then one section per category
-    configured via ZABBIX_CATEGORIES_INI (e.g. DHCP pool usage, SNAT session
-    usage, core-network problems). Item-based categories show current values
-    sorted high-to-low; problem-based categories list active problems.
-
-    Problems are listed newest-first with their age; those older than the recent
-    window (ZABBIX_BRIEF_RECENT_HOURS, default 24h) are folded to a count so a
-    long-standing backlog of un-recovered fossils doesn't bury today's events.
-    Section headers show the true total ('showing N of TOTAL' when capped).
+    Returns ``(text, had_error)``. ``had_error`` is True if any part of the
+    brief (auth, the active-problems fetch, category loading, or an individual
+    category) failed — the ``--brief`` CLI uses it for its exit code, since
+    daily_brief() itself must keep returning a plain string for MCP callers.
     """
     try:
         client = _client()
     except KeyError as e:
-        return f"Missing environment variable: {e}"
+        return f"Missing environment variable: {e}", True
     except ZapiError as e:
         reset_client()
-        return f"Zabbix error: {e}"
+        return f"Zabbix error: {e}", True
 
     now_dt = datetime.now().astimezone()
     now_ts = int(now_dt.timestamp())
     recent_window = _recent_window_seconds()
     window_label = _window_label(recent_window)
     lines = [f"# Daily Brief — {now_dt.strftime('%Y-%m-%d %H:%M')}"]
+    had_error = False
 
     # Active problems (Warning and above), newest first; stale ones folded away.
     try:
@@ -402,14 +411,13 @@ def daily_brief() -> str:
         # next invocation re-authenticates.
         reset_client()
         lines.append(f"\n## Active Problems\nError: {e}")
-        return "\n".join(lines)
+        return "\n".join(lines), True
 
     # Per-category sections
-    try:
-        categories = load_categories()
-    except Exception as e:  # noqa: BLE001 — surface config errors instead of crashing the brief
-        lines.append(f"\n## Categories\nError: {e}")
-        return "\n".join(lines)
+    categories, categories_error = _load_categories_safe()
+    if categories_error:
+        lines.append(f"\n(Categories not loaded: {categories_error})")
+        return "\n".join(lines), True
     if not categories:
         lines.append(
             "\n(No categories configured. Set ZABBIX_CATEGORIES_INI to add "
@@ -423,8 +431,27 @@ def daily_brief() -> str:
                 lines.extend(_brief_problem_category(client, cat, now_ts, recent_window))
         except ZapiError as e:
             lines.append(f"\n## {cat.name}\nError: {e}")
+            had_error = True
 
-    return "\n".join(lines)
+    return "\n".join(lines), had_error
+
+
+@mcp.tool()
+def daily_brief() -> str:
+    """Morning patrol summary.
+
+    Reports active problems (Warning and above), then one section per category
+    configured via ZABBIX_CATEGORIES_INI (e.g. DHCP pool usage, SNAT session
+    usage, core-network problems). Item-based categories show current values
+    sorted high-to-low; problem-based categories list active problems.
+
+    Problems are listed newest-first with their age; those older than the recent
+    window (ZABBIX_BRIEF_RECENT_HOURS, default 24h) are folded to a count so a
+    long-standing backlog of un-recovered fossils doesn't bury today's events.
+    Section headers show the true total ('showing N of TOTAL' when capped).
+    """
+    text, _ = _daily_brief_text()
+    return text
 
 
 # ------------------------------------------------------------------

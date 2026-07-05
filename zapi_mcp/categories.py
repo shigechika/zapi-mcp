@@ -62,6 +62,10 @@ def load_categories(path: str | None = None) -> list[Category]:
     """Load categories from an INI file (env ``ZABBIX_CATEGORIES_INI`` by default).
 
     Returns an empty list when no path is configured or the file is absent.
+    Raises ``configparser.Error`` (malformed INI, e.g. a missing section header
+    or duplicate section) or ``OSError`` (unreadable file) if the path exists
+    but can't be parsed — callers that must not crash on a bad config should
+    catch those two types.
     """
     path = path or os.environ.get("ZABBIX_CATEGORIES_INI")
     if not path or not os.path.isfile(path):
