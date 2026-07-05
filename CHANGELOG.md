@@ -5,22 +5,22 @@
 
 ### Features
 
-* depend on zapi-lib for the Zabbix client ([#9](https://github.com/shigechika/zapi-mcp/issues/9)) ([a2a785a](https://github.com/shigechika/zapi-mcp/commit/a2a785a904455ed4ba82430e851df20dd29b82d8))
+* depend on zapi-lib for the Zabbix client ([#9](https://github.com/shigechika/zapi-mcp/issues/9)) ([73b6741](https://github.com/shigechika/zapi-mcp/commit/73b674148fea3aec0bdfeb8511896c0b1126184a))
 
 ## [0.4.0](https://github.com/shigechika/zapi-mcp/compare/v0.3.0...v0.4.0) (2026-06-04)
 
 
 ### Features
 
-* support below-threshold flagging in daily_brief categories ([#7](https://github.com/shigechika/zapi-mcp/issues/7)) ([4b208c5](https://github.com/shigechika/zapi-mcp/commit/4b208c5c327170708cff43b7bf3d14827e03b0c5))
+* support below-threshold flagging in daily_brief categories ([#7](https://github.com/shigechika/zapi-mcp/issues/7)) ([c9500c7](https://github.com/shigechika/zapi-mcp/commit/c9500c77600ecd4dce825cdd532dd4b31539ae88))
 
 ## [0.3.0](https://github.com/shigechika/zapi-mcp/compare/v0.2.0...v0.3.0) (2026-06-04)
 
 
 ### Features
 
-* add health_check tool ([#4](https://github.com/shigechika/zapi-mcp/issues/4)) ([e13edfd](https://github.com/shigechika/zapi-mcp/commit/e13edfdc0758282d755ee58224ef8b2da66c82ce))
-* add ZapiClient.set_host_tag for upserting host tags ([#5](https://github.com/shigechika/zapi-mcp/issues/5)) ([406cc54](https://github.com/shigechika/zapi-mcp/commit/406cc54e3269f7269d212f049d957db37419e222))
+* add health_check tool ([#4](https://github.com/shigechika/zapi-mcp/issues/4)) ([be1d685](https://github.com/shigechika/zapi-mcp/commit/be1d685ec04213242278929ba3f6809ed9b45c21))
+* add ZapiClient.set_host_tag for upserting host tags ([#5](https://github.com/shigechika/zapi-mcp/issues/5)) ([396c68f](https://github.com/shigechika/zapi-mcp/commit/396c68ff001f59d85c0f03f3bd9a88479bbe0008))
 
 ## 0.2.0 (2026-06-01)
 

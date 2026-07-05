@@ -279,8 +279,8 @@ def test_daily_brief_item_category_search_key_and_rounds(monkeypatch, tmp_path):
     monkeypatch.setenv("ZABBIX_CATEGORIES_INI", str(p))
     item = dict(
         SAMPLE_ITEM,
-        name="EDUROAM-SNAT-CSTS-pool.node0.usage",
-        key_="EDUROAM-SNAT-CSTS-pool.node0.usage",
+        name="pool.node0.usage",
+        key_="pool.node0.usage",
         lastvalue="92.345",
     )
     r = make_router(results={"problem.get": [], "host.get": [SAMPLE_HOST], "item.get": [item]})
@@ -289,7 +289,7 @@ def test_daily_brief_item_category_search_key_and_rounds(monkeypatch, tmp_path):
     # value rounded to 1 decimal, item name shown (label != bare key), flagged
     assert "92.3" in out
     assert "92.345" not in out
-    assert "EDUROAM-SNAT-CSTS-pool.node0.usage" in out
+    assert "pool.node0.usage" in out
     assert "⚠️" in out
     # client must have searched the key, not filtered exactly
     call = next(x["payload"] for x in r.captured if x["payload"]["method"] == "item.get")

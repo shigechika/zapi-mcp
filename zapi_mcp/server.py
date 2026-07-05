@@ -405,7 +405,11 @@ def daily_brief() -> str:
         return "\n".join(lines)
 
     # Per-category sections
-    categories = load_categories()
+    try:
+        categories = load_categories()
+    except Exception as e:  # noqa: BLE001 — surface config errors instead of crashing the brief
+        lines.append(f"\n## Categories\nError: {e}")
+        return "\n".join(lines)
     if not categories:
         lines.append(
             "\n(No categories configured. Set ZABBIX_CATEGORIES_INI to add "
