@@ -294,7 +294,7 @@ def _load_categories_safe() -> tuple[list[Category], str | None]:
     """
     try:
         return load_categories(), None
-    except (configparser.Error, OSError) as e:
+    except (configparser.Error, OSError, UnicodeDecodeError) as e:
         return [], str(e)
 
 

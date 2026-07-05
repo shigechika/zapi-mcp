@@ -63,16 +63,23 @@ def load_categories(path: str | None = None) -> list[Category]:
 
     Returns an empty list when no path is configured or the file is absent.
     Raises ``configparser.Error`` (malformed INI, e.g. a missing section header
-    or duplicate section) or ``OSError`` (unreadable file) if the path exists
-    but can't be parsed — callers that must not crash on a bad config should
-    catch those two types.
+    or duplicate section), ``OSError`` (unreadable file), or
+    ``UnicodeDecodeError`` (file isn't valid text) if the path exists but
+    can't be parsed — callers that must not crash on a bad config should
+    catch those three types.
     """
     path = path or os.environ.get("ZABBIX_CATEGORIES_INI")
     if not path or not os.path.isfile(path):
         return []
 
+    # configparser.ConfigParser.read() silently swallows OSError per file
+    # (its own try/except continues past unreadable files instead of
+    # raising), which would make a permission-denied categories.ini look
+    # identical to "nothing configured". Open it ourselves so a real OSError
+    # propagates instead of being hidden.
     cp = configparser.ConfigParser()
-    cp.read(path)
+    with open(path) as fp:
+        cp.read_file(fp, source=path)
 
     categories: list[Category] = []
     for section in cp.sections():

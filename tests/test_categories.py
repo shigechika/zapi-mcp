@@ -1,5 +1,9 @@
 """Tests for category config loading."""
 
+import sys
+
+import pytest
+
 from zapi_mcp.categories import load_categories
 
 
@@ -10,6 +14,28 @@ def test_no_path_returns_empty(monkeypatch):
 
 def test_missing_file_returns_empty(tmp_path):
     assert load_categories(str(tmp_path / "nope.ini")) == []
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits only")
+def test_unreadable_file_raises_oserror(tmp_path):
+    """configparser.read() silently skips unreadable files instead of raising;
+    load_categories must open the file itself so callers see a real error
+    instead of a permission-denied file looking like "nothing configured"."""
+    p = tmp_path / "cats.ini"
+    p.write_text("[dhcp]\ntag = dhcp\n")
+    p.chmod(0o000)
+    try:
+        with pytest.raises(OSError):
+            load_categories(str(p))
+    finally:
+        p.chmod(0o644)  # restore so tmp_path fixture cleanup can remove it
+
+
+def test_invalid_encoding_raises_unicode_decode_error(tmp_path):
+    p = tmp_path / "cats.ini"
+    p.write_bytes(b"[dhcp]\ntag = dhcp\nname = \xff\xfe bad bytes\n")
+    with pytest.raises(UnicodeDecodeError):
+        load_categories(str(p))
 
 
 def test_item_category(tmp_path):
