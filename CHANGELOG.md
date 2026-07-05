@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/shigechika/zapi-mcp/compare/v0.5.1...v0.5.2) (2026-07-05)
+
+
+### Bug Fixes
+
+* exit cleanly on ^C instead of dumping an anyio teardown traceback ([#16](https://github.com/shigechika/zapi-mcp/issues/16)) ([338c73f](https://github.com/shigechika/zapi-mcp/commit/338c73fd79543f16fab064984b509c3aeeabe945))
+
 ## [0.5.1](https://github.com/shigechika/zapi-mcp/compare/v0.5.0...v0.5.1) (2026-07-05)
 
 
