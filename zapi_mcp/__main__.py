@@ -54,10 +54,11 @@ Required environment variables:
             sys.exit(2)
 
     if args.brief:
-        from zapi_mcp.server import daily_brief
+        from zapi_mcp.server import _daily_brief_text
 
-        print(daily_brief())
-        sys.exit(0)
+        text, had_error = _daily_brief_text()
+        print(text)
+        sys.exit(1 if had_error else 0)
 
     from zapi_mcp.server import mcp
 

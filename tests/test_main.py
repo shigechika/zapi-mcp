@@ -53,3 +53,21 @@ def test_brief_prints_daily_brief(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "# Daily Brief" in out
     assert "Active Problems" in out
+
+
+def test_brief_exits_1_on_bad_categories(monkeypatch, capsys, tmp_path):
+    """A malformed categories.ini must surface as a non-zero exit code so cron
+    failure monitoring catches it, even though the brief itself doesn't crash."""
+    monkeypatch.setattr(sys, "argv", ["zapi-mcp", "--brief"])
+    monkeypatch.setenv("ZABBIX_URL", "https://zabbix.example.com")
+    monkeypatch.setenv("ZABBIX_USER", "u")
+    monkeypatch.setenv("ZABBIX_PASSWORD", "p")
+    p = tmp_path / "bad.ini"
+    p.write_text("this is not a valid ini\nno section header here\n")
+    monkeypatch.setenv("ZABBIX_CATEGORIES_INI", str(p))
+    with make_router(results={"problem.get": [SAMPLE_PROBLEM]}):
+        with pytest.raises(SystemExit) as e:
+            main()
+    assert e.value.code == 1
+    out = capsys.readouterr().out
+    assert "Categories not loaded" in out

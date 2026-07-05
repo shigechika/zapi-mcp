@@ -174,6 +174,9 @@ zapi-mcp             # Start MCP server (STDIO, default)
 
 `--check` exit codes: `0` success, `1` config error, `2` auth/connection error.
 
+`--brief` exit codes: `0` success, `1` a section failed (auth, the active-problems
+fetch, or category loading — see the embedded `Error:` line in the output).
+
 ## Development
 
 ```bash
