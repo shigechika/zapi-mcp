@@ -1,6 +1,10 @@
 """Tests for the CLI entry point (__main__.main)."""
 
+import os
+import signal
+import subprocess
 import sys
+import time
 
 import pytest
 
@@ -71,3 +75,25 @@ def test_brief_exits_1_on_bad_categories(monkeypatch, capsys, tmp_path):
     assert e.value.code == 1
     out = capsys.readouterr().out
     assert "Categories not loaded" in out
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGINT semantics differ on Windows")
+def test_sigint_exits_cleanly():
+    """^C must exit 0 with no anyio teardown traceback (issue #11)."""
+    env = dict(os.environ, ZABBIX_URL="https://zabbix.example.com", ZABBIX_USER="u", ZABBIX_PASSWORD="p")
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "zapi_mcp"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+    )
+    try:
+        time.sleep(2)  # let the stdio server actually start before signalling it
+        proc.send_signal(signal.SIGINT)
+        _, stderr = proc.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        raise
+    assert proc.returncode == 0
+    assert b"Traceback" not in stderr

@@ -1,6 +1,7 @@
 """Entry point for zapi-mcp."""
 
 import argparse
+import asyncio
 import os
 import sys
 
@@ -62,7 +63,17 @@ Required environment variables:
 
     from zapi_mcp.server import mcp
 
-    mcp.run()
+    try:
+        mcp.run()
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        # anyio's teardown on SIGINT dumps a 20-80 line traceback. What it
+        # raises out of mcp.run() is Python-version-dependent: a bare
+        # KeyboardInterrupt on 3.12/3.13, but asyncio.CancelledError on 3.10
+        # (asyncio.Runner.run() re-raises CancelledError instead of letting
+        # KeyboardInterrupt propagate — verified against this repo's own CI
+        # matrix). Catch both and exit clean like the sibling fleet MCP
+        # servers (junos-mcp, eos-mcp, aruba-central-mcp, keycloak-mcp).
+        os._exit(0)
 
 
 if __name__ == "__main__":
