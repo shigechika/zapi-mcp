@@ -33,8 +33,8 @@ family, don't assume lint is unenforced.
 Any `print()` or library logging that writes to stdout (instead of stderr)
 corrupts the protocol stream for the connected client. As of now this
 codebase has no `logging` usage at all, and every `print()` call in
-`__main__.py` sits in a branch that `sys.exit()`s (or returns) *before*
-`mcp.run()` is reached — the `--version` branch, the missing-env-var check,
+`__main__.py` sits in a branch that calls `sys.exit()` *before* `mcp.run()`
+is reached — the `--version` branch, the missing-env-var check,
 and the `--check` / `--brief` branches — so none of them ever run
 concurrently with the live stdio server. Flag any new code path that adds a
 `print()`, or a logger without an explicit stderr handler, that could
