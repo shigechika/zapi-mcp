@@ -41,5 +41,8 @@ to guard against stdio newline regressions).
 - `ruff` lint rules: `E, F, I, W, UP`, line length 120.
 - Tests mock Zabbix's JSON-RPC endpoint exclusively via `respx`
   (`tests/conftest.py`'s `make_router`); there is no `unittest.mock` usage in
-  this suite. FastMCP-wrapped tool functions are called via their `.fn`
-  attribute in tests (see `tests/test_server.py`'s `_call` helper).
+  this suite. Tests call tools through `tests/test_server.py`'s `_call()`
+  helper (`getattr(tool, "fn", tool)`) rather than calling the tool directly,
+  so the suite keeps working whether `@mcp.tool()` returns the plain function
+  (the current behavior, in this repo's pinned `mcp` version) or a wrapper
+  exposing it via `.fn`.
