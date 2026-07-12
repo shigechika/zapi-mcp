@@ -31,7 +31,22 @@ to guard against stdio newline regressions).
 - `zapi_mcp/categories.py` — `Category` dataclass + `load_categories()` for
   the optional `ZABBIX_CATEGORIES_INI`-driven `daily_brief` sections.
 - `zapi_mcp/__main__.py` — CLI entry point (`--version`/`--check`/`--brief`)
-  and the `mcp.run()` stdio server start.
+  and the `mcp.run()` stdio server start. The `mcp.run()` call is wrapped in
+  `except (KeyboardInterrupt, asyncio.CancelledError)` → `os._exit(0)`: what
+  escapes on ^C is Python-version-dependent (3.10 raises `CancelledError`,
+  3.12/3.13 raise `KeyboardInterrupt`) and `os._exit(0)` suppresses anyio's
+  teardown traceback (guarded by `test_main.py::test_sigint_exits_cleanly`).
+
+## Release pipeline
+
+Versions are owned by release-please, never hand-edited. A release PR bumps
+the string in lockstep across `zapi_mcp/__init__.py` (`x-release-please-version`
+marker), `server.json`'s `$.version` and `$.packages[0].version`, and
+`.release-please-manifest.json` — the first three are declared in
+`release-please-config.json`'s `extra-files`. On the published tag,
+`.github/workflows/release.yml`'s `verify` job hard-fails on any mismatch
+between the tag, `__init__.py`, and both `server.json` paths, then gates the
+`build → testpypi → pypi → mcp-registry` publish chain.
 
 ## Conventions
 
