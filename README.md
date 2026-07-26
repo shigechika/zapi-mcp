@@ -216,6 +216,9 @@ uv run python scripts/smoke_test.py --only get_problems --traceback
   operator's own terminal.
 - Arguments that would identify real hosts, groups or tag values are
   **discovered at run time**, never written into `scripts/smoke_probes.py`.
+  Two tests enforce that: one refuses those parameters as literals, the other
+  bans anything address-shaped (mail address, URL, hostname, IPv4, IPv6)
+  anywhere in the file.
 - An empty answer is a real observation here — a monitoring system with nothing
   wrong is the goal — so probes assert the envelope the tool must produce
   rather than a row count.

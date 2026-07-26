@@ -6,8 +6,6 @@ without deciding how we would know it works? — is answerable offline, so it is
 enforced here on every push.
 """
 
-from __future__ import annotations
-
 import asyncio
 import re
 import sys
@@ -41,6 +39,13 @@ ADDRESS_SHAPES = {
         r"|\b[0-9a-f]{1,4}(?::[0-9a-f]{1,4})*::(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4})*)?"
     ),
 }
+
+#: Tool parameters whose value names something in the monitored estate. A
+#: Zabbix host, group or tag value is usually a bare word ("core-switch-01",
+#: "Core Routers") with no dot, TLD or address shape in it, so the patterns
+#: above cannot see it — hence a second, key-based guard: these arguments must
+#: come from an args_factory at run time, never from a literal in the specs.
+IDENTIFIER_ARGS = {"host", "group", "tag_name", "tag_value", "role"}
 
 #: Tools that change state. The smoke test must never call these.
 STATE_CHANGING = {"acknowledge_problem"}
@@ -177,14 +182,43 @@ def test_address_shapes_catch_what_they_claim_to():
         assert not matched, f"false positive on {value!r}: {matched}"
 
 
-def test_no_site_specific_identifiers_in_specs():
+def test_no_site_identifying_arguments_are_hardcoded():
+    """Arguments that name part of the estate must be discovered, not written down.
+
+    This is the half of the "no site-specific values" rule that the shape scan
+    below cannot do: a host, group or tag value is typically a bare word with
+    no address shape to recognise. Rather than trying to tell a real host name
+    from an invented one, this refuses the *parameters* outright — they come
+    from an args_factory or they do not appear.
+    """
+    # encoding pinned: the default is the locale's, which is cp1252 on the
+    # Windows CI runner and cannot decode this source.
+    source = (Path(__file__).resolve().parent.parent / "zapi_mcp" / "server.py").read_text(encoding="utf-8")
+    stale = sorted(k for k in IDENTIFIER_ARGS if not re.search(rf"^\s+{k}: ", source, re.MULTILINE))
+    assert not stale, (
+        f"IDENTIFIER_ARGS names parameters no tool takes any more: {stale}. "
+        "A renamed parameter silently empties this guard, so keep the set in "
+        "step with the tool signatures."
+    )
+
+    offenders = [
+        (name, key) for name, probe in smoke_probes.PROBES.items() for key in probe.args if key in IDENTIFIER_ARGS
+    ]
+    assert not offenders, (
+        f"site-identifying arguments hardcoded in smoke_probes.py: {offenders}. "
+        "Discover them at run time (args_factory); this repository is public."
+    )
+
+
+def test_no_site_specific_literals_in_specs():
     """This repository is public: probes must not name the site they run against.
 
-    Arguments that identify real hosts, host groups or tag values are
-    discovered at run time by an args_factory instead of being written down
-    here. The patterns below are deliberately generic: spelling out the
-    installation's own domain in order to forbid it would put that domain in a
-    public repository, which is the very thing this test exists to prevent.
+    The complement of the check above: it bans the parameters that carry a name
+    from the estate, this one bans anything address-shaped anywhere in the file
+    — a URL, a mail address, an IP. The patterns are deliberately generic:
+    spelling out the installation's own domain in order to forbid it would put
+    that domain in a public repository, which is the very thing this test
+    exists to prevent.
     """
     source = (Path(__file__).resolve().parent.parent / "scripts" / "smoke_probes.py").read_text(encoding="utf-8")
     hits = [label for label, pattern in ADDRESS_SHAPES.items() if re.search(pattern, source)]

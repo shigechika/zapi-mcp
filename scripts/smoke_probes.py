@@ -24,8 +24,6 @@ monitoring system with nothing wrong is the goal, not a malfunction — so the
 probes accept it and assert the envelope instead.
 """
 
-from __future__ import annotations
-
 import re
 from typing import Any
 

@@ -65,7 +65,9 @@ between the tag, `__init__.py`, and both `server.json` paths, then gates the
   specs in `smoke_probes.py`, and `smoke_harness.py` — the server-agnostic
   engine, kept identical across the servers that share it, so fix engine bugs
   once and sync the file rather than patching this copy (it is excluded from
-  `ruff format` for that reason; `ruff check` still applies). It runs every
+  `ruff format` for that reason, and keeps the shared copies' own style —
+  including a `from __future__ import annotations` this repo does not otherwise
+  need; `ruff check` still applies to it). It runs every
   registered tool against a real Zabbix (see README); `tests/test_smoke_probes.py`
   is the offline half and needs only the tool registry. Adding a tool without a
   probe spec fails CI: decide when you add the tool how anyone would know it
