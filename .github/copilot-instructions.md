@@ -113,6 +113,15 @@ though not automatically wrong if there's a stated reason.
   A new test that calls a tool function directly instead of through
   `_call()` isn't broken today, but is inconsistent with the suite's
   convention — prefer `_call()` for consistency and version resilience.
+- `tests/test_smoke_probes.py` guards `scripts/smoke_test.py`, which
+  exercises every registered tool against a real Zabbix. It asserts what
+  can be checked without one: every registered tool has a probe spec, no
+  spec targets a removed tool, state-changing tools stay skipped, tools
+  that accept a `limit` are probed with an explicit small one, and no
+  site-specific literal (address, host, tag value) is written into the
+  specs — this repository is public. A new tool therefore needs an entry
+  in `scripts/smoke_probes.py` or CI fails; that is deliberate, not an
+  obstacle to route around.
 - `tests/test_stdio_smoke.py` asserts every registered tool has a
   non-empty `description` and that the known tool names are present. A new
   `@mcp.tool()` without a docstring will fail that smoke test, not just

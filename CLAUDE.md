@@ -61,3 +61,15 @@ between the tag, `__init__.py`, and both `server.json` paths, then gates the
   so the suite keeps working whether `@mcp.tool()` returns the plain function
   (the current behavior, in this repo's pinned `mcp` version) or a wrapper
   exposing it via `.fn`.
+- `scripts/` holds the live smoke test: `smoke_test.py` (CLI), its per-tool
+  specs in `smoke_probes.py`, and `smoke_harness.py` — the server-agnostic
+  engine, kept identical across the servers that share it, so fix engine bugs
+  once and sync the file rather than patching this copy (it is excluded from
+  `ruff format` for that reason, and keeps the shared copies' own style —
+  including a `from __future__ import annotations` this repo does not otherwise
+  need; `ruff check` still applies to it). It runs every
+  registered tool against a real Zabbix (see README); `tests/test_smoke_probes.py`
+  is the offline half and needs only the tool registry. Adding a tool without a
+  probe spec fails CI: decide when you add the tool how anyone would know it
+  works. Probes stay read-only, name no site-specific value, and pass an
+  explicit small `limit` wherever a tool offers one.
