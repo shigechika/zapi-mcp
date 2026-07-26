@@ -195,6 +195,32 @@ python3 -m venv .venv
 .venv/bin/ruff check .
 ```
 
+### ライブスモークテスト
+
+`pytest` はフィクスチャに対してロジックを検証するだけで、ツールが実データを
+返さなくなったことは検出できない。`scripts/smoke_test.py` は設定済みの Zabbix に対して
+**登録されている全ツール**を実行し、空・不正・エラー応答を失敗として報告する。
+
+```bash
+# サーバーと同じ ZABBIX_* 環境変数が必要
+uv run python scripts/smoke_test.py
+uv run python scripts/smoke_test.py --only get_problems --traceback
+```
+
+- **読み取り専用**。`acknowledge_problem` は名前で除外する（承認は全オペレーターから
+  見えてしまい、こっそり取り消せない）。除外はテストで強制している。レポートに出るのは
+  ツール名とステータスだけでペイロードは出さない。Zabbix のエラー文言は問い合わせた
+  ホスト名を含むため、これも伏字にする（`--traceback` を付ければ実行者の端末には全文が出る）。
+- 実在のホスト・ホストグループ・タグ値を特定しうる引数は**実行時に発見**し、
+  `scripts/smoke_probes.py` には書かない。
+- ここでは応答が空であること自体が正常な観測結果（何も問題が起きていない監視システムが
+  望ましい状態）なので、probe は件数ではなくツールが返すべき体裁（envelope）を表明する。
+- CI では安価な半分を強制する。probe spec の無いツールを登録するとビルドが失敗するので
+  （`tests/test_smoke_probes.py`）、ツール追加時に「どうやって動作を確認するか」を必ず決めることになる。
+- `scripts/smoke_harness.py` はエンジンであり Zabbix 固有の知識を持たない。このハーネスを
+  共有する各サーバーで同一に保つ方針なので、エンジンのバグはこの写しを直すのではなく
+  一度直して全体に同期する。
+
 ## リリース
 
 リリースは [release-please](https://github.com/googleapis/release-please) で自動化している。
