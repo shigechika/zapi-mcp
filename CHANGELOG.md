@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/shigechika/zapi-mcp/compare/v0.5.2...v0.6.0) (2026-07-26)
+
+
+### Features
+
+* live smoke test that exercises every registered tool ([#35](https://github.com/shigechika/zapi-mcp/issues/35)) ([f9c410e](https://github.com/shigechika/zapi-mcp/commit/f9c410e96caad7b43f8f356758e401d6b7c92211))
+
+
+### Bug Fixes
+
+* sync the smoke-test engine and unwrap the --stdio result ([#38](https://github.com/shigechika/zapi-mcp/issues/38)) ([ba9cc15](https://github.com/shigechika/zapi-mcp/commit/ba9cc15ff3166d1a5d9a1b237a6c662e6a152000))
+
 ## [0.5.2](https://github.com/shigechika/zapi-mcp/compare/v0.5.1...v0.5.2) (2026-07-05)
 
 
