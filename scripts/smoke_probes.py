@@ -36,8 +36,10 @@ async def _first_host(call: Caller) -> dict[str, Any]:
     text = payload if isinstance(payload, str) else str(payload)
     # "Hosts (N):" then one indented "  <name>  <ip>  [tags]" per host — take
     # the first listed name. The header line is not indented, so it cannot be
-    # mistaken for an entry.
-    match = re.search(r"^ {2}(\S+)", text, re.MULTILINE)
+    # mistaken for an entry. The name runs to the two-space separator rather
+    # than to the first space: Zabbix allows a space inside a host's technical
+    # name, and a truncated name would be looked up as a different host.
+    match = re.search(r"^ {2}(\S.*?) {2}", text, re.MULTILINE)
     if not match:
         raise SkipProbe("get_hosts returned no host to probe with")
     return {"host": match.group(1)}
@@ -71,7 +73,7 @@ PROBES: dict[str, Probe] = {
     "get_host_items": Probe(
         args_factory=_first_host,
         args={"search": "icmp"},
-        must_match=(r"^Items for \S+ \(\d+\):|^No items found for",),
+        must_match=(r"^Items for .+ \(\d+\):|^No items found for",),
         # The host came from get_hosts a moment earlier, so "not found" is not
         # an acceptable answer here: it would mean the name the one tool prints
         # is not the name the other looks up.
