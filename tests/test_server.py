@@ -324,11 +324,17 @@ def test_daily_brief_below_threshold_flags_low_values(monkeypatch, tmp_path):
     with r:
         out = _call(server.daily_brief)()
     assert "Speedtest" in out
-    slow_line = next(ln for ln in out.splitlines() if "42" in ln)
-    fast_line = next(ln for ln in out.splitlines() if "950" in ln)
+    # Located by item name, not by value: the brief opens with a timestamped
+    # header, so "42" matches "13:42" on any run started in the 42nd minute of
+    # an hour and the header is then asserted on instead of the item row.
+    slow_line = next(ln for ln in out.splitlines() if "cloudflare.download" in ln)
+    fast_line = next(ln for ln in out.splitlines() if "ookla.download" in ln)
+    assert "42" in slow_line
+    assert "950" in fast_line
     assert "⚠️" in slow_line  # 42 <= threshold 100 -> flagged
     assert "⚠️" not in fast_line  # 950 > 100 -> not flagged
-    assert out.index("42") < out.index("950")  # below surfaces the lowest first
+    # below surfaces the lowest first
+    assert out.index("cloudflare.download") < out.index("ookla.download")
 
 
 def test_fmt_value_rounds_and_handles_empty():
