@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/shigechika/zapi-mcp/compare/v0.6.0...v0.6.1) (2026-07-27)
+
+
+### Bug Fixes
+
+* **ci:** read AI-review guidance from the base revision, drop the checkout ([#43](https://github.com/shigechika/zapi-mcp/issues/43)) ([3d58111](https://github.com/shigechika/zapi-mcp/commit/3d5811147ba79b550848c2b2a434c52a63670a8d))
+* sync the smoke-test engine ([#40](https://github.com/shigechika/zapi-mcp/issues/40)) ([22c7c1a](https://github.com/shigechika/zapi-mcp/commit/22c7c1a11a61b88db0b062a9f57c25b812efa4d1))
+
 ## [0.6.0](https://github.com/shigechika/zapi-mcp/compare/v0.5.2...v0.6.0) (2026-07-26)
 
 
