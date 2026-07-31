@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/shigechika/zapi-mcp/compare/v0.6.1...v0.6.2) (2026-07-31)
+
+
+### Bug Fixes
+
+* **deps:** cap the MCP SDK below v2 ([#45](https://github.com/shigechika/zapi-mcp/issues/45)) ([045a971](https://github.com/shigechika/zapi-mcp/commit/045a971ed5ade6eba40e0098004cc33d07367ada))
+
 ## [0.6.1](https://github.com/shigechika/zapi-mcp/compare/v0.6.0...v0.6.1) (2026-07-27)
 
 
