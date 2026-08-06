@@ -1,5 +1,3 @@
-<!-- mcp-name: io.github.shigechika/zapi-mcp -->
-
 # zapi-mcp
 
 [English](README.md) | 日本語
@@ -13,6 +11,8 @@
 
 バージョン適応認証：Zabbix 6.0 LTS（`user` ＋ `auth` フィールド）で動作し、
 6.4 / 7.0（`username` ＋ `Authorization: Bearer`）にも前方互換。
+
+ドキュメント: <https://shigechika.github.io/zapi-mcp/ja/>
 
 ## 機能
 
@@ -84,21 +84,26 @@ API ユーザには照会するホストグループの参照権限が必要。`
 ```ini
 [dhcp]
 name = DHCP Pool Usage
-tag = dhcp-pool-usage      ; カテゴリを識別する Zabbix ホストタグ
-item_key = usage           ; このアイテムキー（完全一致）の現在値を報告
-threshold = 80             ; この値以上を強調表示
+# カテゴリを識別する Zabbix ホストタグ
+tag = dhcp-pool-usage
+# このアイテムキー（完全一致）の現在値を報告
+item_key = usage
+# この値以上を強調表示
+threshold = 80
 
 [snat]
 name = SNAT Session Pool
 tag = snat-pool-usage
-item_key_search = .usage   ; 部分一致（pool.node0.usage などを拾う）
+# 部分一致（pool.node0.usage などを拾う）
+item_key_search = .usage
 threshold = 80
 
 [core]
 name = Core Network
 tag = role
-tag_value = main           ; タグがこの値と一致するもの
-                           ; アイテムキー無し → 代わりにアクティブな問題を報告
+# タグがこの値と一致するもの
+tag_value = main
+# アイテムキー無し → 代わりにアクティブな問題を報告
 ```
 
 - `tag`（必須）: カテゴリを識別するホストタグ。`tag_value` 併用時はその値と

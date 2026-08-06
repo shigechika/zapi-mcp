@@ -15,6 +15,8 @@ server stays generic.
 Version-adaptive auth: works against Zabbix 6.0 LTS (`user` + `auth` field) and
 forward-compatible with 6.4 / 7.0 (`username` + `Authorization: Bearer`).
 
+Documentation: <https://shigechika.github.io/zapi-mcp/>
+
 ## Features
 
 | Tool | Description |
@@ -84,21 +86,26 @@ DHCP pool exhaustion, SNAT session usage, core-network problems — point
 ```ini
 [dhcp]
 name = DHCP Pool Usage
-tag = dhcp-pool-usage      ; Zabbix host tag identifying the group
-item_key = usage           ; report current values for this exact item key
-threshold = 80             ; flag values >= this
+# Zabbix host tag identifying the group
+tag = dhcp-pool-usage
+# report current values for this exact item key
+item_key = usage
+# flag values >= this
+threshold = 80
 
 [snat]
 name = SNAT Session Pool
 tag = snat-pool-usage
-item_key_search = .usage   ; substring match (catches pool.node0.usage etc.)
+# substring match (catches pool.node0.usage etc.)
+item_key_search = .usage
 threshold = 80
 
 [core]
 name = Core Network
 tag = role
-tag_value = main           ; tag must equal this value
-                           ; no item key -> report active problems instead
+# the tag must equal this value
+tag_value = main
+# no item key -> report active problems instead
 ```
 
 - `tag` (required): host tag identifying the category. With `tag_value`, the tag
