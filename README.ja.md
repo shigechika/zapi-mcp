@@ -1,5 +1,3 @@
-<!-- mcp-name: io.github.shigechika/zapi-mcp -->
-
 # zapi-mcp
 
 [English](README.md) | 日本語
