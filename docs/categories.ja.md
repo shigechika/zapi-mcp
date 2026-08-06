@@ -20,23 +20,35 @@
 
 ```ini
 [dhcp]
+# カテゴリを識別する Zabbix ホストタグ
+tag = dhcp-pool-usage
+# このアイテムキー（完全一致）の現在値を報告する
+item_key = usage
+# この値以上をフラグ
+threshold = 80
 name = DHCP Pool Usage
-tag = dhcp-pool-usage      ; カテゴリを識別する Zabbix ホストタグ
-item_key = usage           ; このアイテムキーの現在値を報告する
-threshold = 80             ; この値以上をフラグ
 
 [snat]
-name = SNAT Session Pool
 tag = snat-pool-usage
-item_key_search = .usage   ; 部分一致（pool.node0.usage 等を拾う）
+# 部分一致（pool.node0.usage 等を拾う）
+item_key_search = .usage
 threshold = 80
+name = SNAT Session Pool
 
 [core]
-name = Core Network
 tag = role
-tag_value = main           ; タグがこの値と一致すること
-                           ; アイテムキー無し -> アクティブな問題を報告する
+# タグがこの値と一致すること
+tag_value = main
+# アイテムキー無し -> アクティブな問題を報告する
+name = Core Network
 ```
+
+!!! warning "コメントは行を分けて書くこと"
+    `configparser` を `inline_comment_prefixes` 無しで使っているため、行末の
+    `; コメント` は値の一部になります。`tag = foo ; bar` と書くと
+    `foo ; bar` という名前のタグを探して（何にも一致せず）、行末コメント付きの
+    `threshold` は閾値なしとして解析されます。どちらも無言で起きます。上の例の
+    ようにコメントは独立した行に書いてください。
 
 リポジトリの [`categories.ini.example`](https://github.com/shigechika/zapi-mcp/blob/main/categories.ini.example)
 も参照してください。
@@ -45,8 +57,8 @@ tag_value = main           ; タグがこの値と一致すること
 
 | キー | 必須 | 意味 |
 |---|---|---|
-| `name` | ○ | レポート上のセクション見出し |
-| `tag` | ○ | カテゴリを識別するホストタグ |
+| `name` | | レポート上のセクション見出し。省略時は `[ ]` 内のセクション名 |
+| `tag` | **○** | カテゴリを識別するホストタグ。無いセクションはスキップされる |
 | `tag_value` | | 指定時はタグがこの値と**一致**すること（Equal）。省略時はタグを持つホストすべてが対象（Exists） |
 | `item_key` | | 完全一致のアイテムキー。指定するとそのセクションは現在値を報告する |
 | `item_key_search` | | アイテムキーの部分一致。キーに ID が埋め込まれている場合に使う |
@@ -91,10 +103,23 @@ threshold = 100000000
 
 ## 失敗したときの挙動
 
-INI の記述ミス・読めないファイル・権限不足は、**黙って「カテゴリ無し」に劣化しません**。
-`daily_brief` は `(Categories not loaded: …)` の行を出すのでレポート自体で欠落が
-見え、`health_check` は解析失敗を `categories_error` に載せます。
+**報告されるもの。** INI の構文エラー・読めないファイル・権限不足は、**黙って
+「カテゴリ無し」に劣化しません**。`daily_brief` は `(Categories not loaded: …)` の
+行を出すのでレポート自体で欠落が見え、`health_check` は失敗を `categories_error` に
+載せます。対象はパーサーが送出するもの（`configparser.Error`・`OSError`・
+`UnicodeDecodeError`）です。
 
 読み込みには成功したが Zabbix への問い合わせが失敗したカテゴリは、そのセクションの
 下に `Error: …` としてその場に表示され、レポートの残りはそのまま出ます。朝の
 レポートが黙ってセクションを落とすのは、壊れたと言ってくれるより悪いことです。
+
+**黙って起きるもの。** 構文として正しいファイル**の中身**の誤りは報告されません。
+エラーを期待せず、`health_check` の `categories` 一覧を読んで確認してください。
+
+- `tag` の無いセクション（`tags =` のような打ち間違い）は丸ごとスキップされ、
+  ブリーフに一切現れません
+- 数値として解釈できない `threshold` は「閾値なし」として扱われ、何もフラグされません
+- `below` 以外の `direction`（`under` のような綴り間違いを含む）は `above` に倒れます
+
+設定したはずのセクションが `health_check` の `categories` に無ければ、まず `tag` の
+欠落・綴り間違いを疑ってください。

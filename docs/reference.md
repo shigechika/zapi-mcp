@@ -40,18 +40,22 @@ The morning report. Structure:
 # Daily Brief — 2026-08-06 09:00
 
 ## Active Problems (showing 50 of 97)
-### High
-  [High] Unavailable by ICMP ping  eventid=...  (2026-08-06 07:12, 2h ago)
-  … and 14 older (stale; oldest 2024-10-04)
 
-## DHCP Pool Usage
-  100.0%  POOL-A   usage
-   82.3%  POOL-B   usage
+### High (23, 2 in last 24h)
+- Unavailable by ICMP ping  eventid=18813696  (2026-08-06 07:12, 2h ago)
+- … and 21 older (stale; oldest 2024-10-04 10:39)
+
+## DHCP Pool Usage (2 hosts)
+- POOL-A: 100.0 %  ⚠️  (2026-08-06 09:00:00)
+- POOL-B: 82.3 %  (2026-08-06 09:00:00)
 ```
 
-Problems are Warning and above, newest-first, each with its age. Anything older
-than `ZABBIX_BRIEF_RECENT_HOURS` is folded into the `… and N older` line.
-Category sections follow, one per configured `[section]`.
+Problems are Warning and above, newest-first, each with its `eventid`, onset
+time and age. The severity heading carries both the bucket size and how many of
+those are recent. Anything older than `ZABBIX_BRIEF_RECENT_HOURS` is folded into
+the `… and N older` line — note that the severity name is not repeated on each
+row, since the heading already states it. Category sections follow, one per
+configured `[section]`, with `⚠️` marking values past the threshold.
 
 ### `get_problems(min_severity=2, tag_name=None, tag_value=None, limit=50)`
 
@@ -95,10 +99,19 @@ Exit codes:
 | Command | 0 | 1 | 2 |
 |---|---|---|---|
 | `--check` | success | config error | auth / connection error |
-| `--brief` | success | a section failed (see the `Error:` line in the output) | — |
+| `--brief` | success | missing environment variables, **or** a section failed | — |
 
 `--brief` returning non-zero is what distinguishes "nothing is wrong" from "we
 could not ask", which the text alone does not.
+
+!!! warning "Do not detect failure by grepping stdout"
+    Exit 1 covers two cases that look different in the output. Missing
+    environment variables are reported on **stderr** and stdout stays empty —
+    there is no brief and no `Error:` line to find. A backend failure does print
+    a brief, but the embedded line reads `Zabbix error: …` or
+    `Missing environment variable: …` rather than starting with `Error:`. A
+    monitor that only looks for `Error:` in stdout misses both. Check the exit
+    status.
 
 ## Reading capped counts
 

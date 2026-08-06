@@ -22,23 +22,35 @@ Each `[section]` is one category:
 
 ```ini
 [dhcp]
+# Zabbix host tag identifying the group
+tag = dhcp-pool-usage
+# report current values for this exact item key
+item_key = usage
+# flag values >= this
+threshold = 80
 name = DHCP Pool Usage
-tag = dhcp-pool-usage      ; Zabbix host tag identifying the group
-item_key = usage           ; report current values for this exact item key
-threshold = 80             ; flag values >= this
 
 [snat]
-name = SNAT Session Pool
 tag = snat-pool-usage
-item_key_search = .usage   ; substring match (catches pool.node0.usage etc.)
+# substring match (catches pool.node0.usage etc.)
+item_key_search = .usage
 threshold = 80
+name = SNAT Session Pool
 
 [core]
-name = Core Network
 tag = role
-tag_value = main           ; tag must equal this value
-                           ; no item key -> report active problems instead
+# the tag must equal this value
+tag_value = main
+# no item key -> report active problems instead
+name = Core Network
 ```
+
+!!! warning "Comments must be on their own line"
+    `configparser` is used without `inline_comment_prefixes`, so a trailing
+    `; comment` becomes part of the value. Written inline, `tag = foo ; bar`
+    looks for a tag literally named `foo ; bar` (matching nothing) and a
+    `threshold` with a trailing comment parses as no threshold at all — both
+    silently. Keep comments on their own line, as above.
 
 See [`categories.ini.example`](https://github.com/shigechika/zapi-mcp/blob/main/categories.ini.example)
 in the repository.
@@ -47,8 +59,8 @@ in the repository.
 
 | Key | Required | Meaning |
 |---|---|---|
-| `name` | yes | Section heading in the report |
-| `tag` | yes | Host tag identifying the category |
+| `name` | no | Section heading in the report; defaults to the section name in brackets |
+| `tag` | **yes** | Host tag identifying the category. A section without it is skipped |
 | `tag_value` | no | When set, the tag must **equal** this value (Equal). When absent, any host carrying the tag matches (Exists) |
 | `item_key` | no | Exact item key; the section reports current values |
 | `item_key_search` | no | Substring match on the item key, for keys that embed an id |
@@ -94,11 +106,27 @@ threshold = 100000000
 
 ## Failure behaviour
 
-A malformed INI, an unreadable file or a bad permission does **not** silently
-degrade to "no categories". `daily_brief` emits a
+**Reported.** A malformed INI, an unreadable file or a bad permission does
+**not** silently degrade to "no categories": `daily_brief` emits a
 `(Categories not loaded: …)` line so the omission is visible in the report
-itself, and `health_check` carries the parse failure in `categories_error`.
+itself, and `health_check` carries the failure in `categories_error`. This
+covers what the parser raises — `configparser.Error`, `OSError`,
+`UnicodeDecodeError`.
 
 A category that loads but whose Zabbix query fails is rendered inline as
 `Error: …` under that section, leaving the rest of the brief intact. A morning
 report that quietly drops a section is worse than one that says it broke.
+
+**Silent.** Mistakes *within* a well-formed file are not reported, so check
+these by reading `health_check`'s `categories` list rather than expecting an
+error:
+
+- a section with no `tag` (a typo such as `tags =`) is skipped entirely — it
+  simply never appears in the brief
+- a `threshold` that is not a number is treated as no threshold, so nothing is
+  ever flagged
+- a `direction` other than `below` — including a misspelling like `under` —
+  falls back to `above`
+
+If a section you configured is missing from `health_check`'s `categories`, a
+missing or misspelled `tag` is the first thing to check.

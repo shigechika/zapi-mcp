@@ -40,18 +40,21 @@
 # Daily Brief — 2026-08-06 09:00
 
 ## Active Problems (showing 50 of 97)
-### High
-  [High] Unavailable by ICMP ping  eventid=...  (2026-08-06 07:12, 2h ago)
-  … and 14 older (stale; oldest 2024-10-04)
 
-## DHCP Pool Usage
-  100.0%  POOL-A   usage
-   82.3%  POOL-B   usage
+### High (23, 2 in last 24h)
+- Unavailable by ICMP ping  eventid=18813696  (2026-08-06 07:12, 2h ago)
+- … and 21 older (stale; oldest 2024-10-04 10:39)
+
+## DHCP Pool Usage (2 hosts)
+- POOL-A: 100.0 %  ⚠️  (2026-08-06 09:00:00)
+- POOL-B: 82.3 %  (2026-08-06 09:00:00)
 ```
 
-問題は Warning 以上を新しい順に、経過時間つきで並べます。`ZABBIX_BRIEF_RECENT_HOURS`
-より古いものは `… and N older` の行に畳まれます。続いて、設定した `[section]` ごとに
-カテゴリのセクションが並びます。
+問題は Warning 以上を新しい順に、`eventid`・発生時刻・経過時間つきで並べます。
+深刻度の見出しには件数と、そのうち直近何件かが入ります。`ZABBIX_BRIEF_RECENT_HOURS`
+より古いものは `… and N older` の行に畳まれます。各行に深刻度名は繰り返しません
+（見出しが既に示しているため）。続いて、設定した `[section]` ごとにカテゴリの
+セクションが並び、閾値を超えた値には `⚠️` が付きます。
 
 ### `get_problems(min_severity=2, tag_name=None, tag_value=None, limit=50)`
 
@@ -92,10 +95,18 @@ zapi-mcp --brief    # daily_brief を標準出力へ（cron 向き）
 | コマンド | 0 | 1 | 2 |
 |---|---|---|---|
 | `--check` | 成功 | 設定エラー | 認証・接続エラー |
-| `--brief` | 成功 | いずれかのセクションが失敗（出力中の `Error:` 行を参照） | — |
+| `--brief` | 成功 | 環境変数の欠落、**または**いずれかのセクションの失敗 | — |
 
 `--brief` が非ゼロを返すかどうかが「異常が無い」と「問い合わせられなかった」を
 区別します。テキストだけでは区別がつきません。
+
+!!! warning "標準出力の grep で失敗を判定しない"
+    exit 1 には出力の見え方が異なる2ケースが含まれます。環境変数の欠落は
+    **標準エラー**に出力され標準出力は空になる（ブリーフも `Error:` 行も無い）ため、
+    探すべき文字列自体が存在しません。バックエンドの失敗ではブリーフは出ますが、
+    埋め込まれる行は `Zabbix error: …` や `Missing environment variable: …` であり
+    `Error:` で始まりません。標準出力の `Error:` だけを見る監視は両方取りこぼします。
+    終了コードで判定してください。
 
 ## 打ち切られた件数の読み方
 
