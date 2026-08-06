@@ -4,8 +4,8 @@
 
 ### `health_check()`
 
-Returns a fixed set of keys on every path, so a caller never has to branch on
-their presence:
+These keys are present on every path, so judging health never requires probing
+for their existence — read `status` and the rest is there:
 
 | Key | Meaning |
 |---|---|
@@ -16,8 +16,17 @@ their presence:
 | `zabbix_api_version` | Detected API version; `null` until a backend connection succeeds |
 | `auth` | `ok` / `error` / `missing-env` |
 | `categories` | Names of the loaded `daily_brief` categories |
-| `detail` | Present on degraded/error: the reason |
-| `categories_error` | Present when the category file failed to parse |
+
+Two further keys appear only when they have something to say:
+
+| Key | Appears when |
+|---|---|
+| `detail` | A backend problem occurred: a missing environment variable (`status=error`, `auth=missing-env`) or a Zabbix error (`status=degraded`, `auth=error`) |
+| `categories_error` | The category file failed to parse (`status=degraded`) |
+
+The two are independent. A run whose only fault is an unparsable category file
+reports `status=degraded` with `categories_error` and **no** `detail`, because
+the backend itself was fine.
 
 Lightweight by design: it authenticates once (reusing the cached session) and
 reads the API version. It does not scan problems or items, so it is safe to

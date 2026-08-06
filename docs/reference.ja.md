@@ -4,7 +4,8 @@
 
 ### `health_check()`
 
-どの経路でも同じキー構成を返すので、呼び出し側がキーの有無で分岐する必要がありません。
+次のキーはどの経路でも必ず返ります。健全性の判断にキーの有無を調べる必要はなく、
+`status` を読めば残りはそこにあります。
 
 | キー | 意味 |
 |---|---|
@@ -15,8 +16,17 @@
 | `zabbix_api_version` | 検出した API バージョン。接続に成功するまでは `null` |
 | `auth` | `ok` / `error` / `missing-env` |
 | `categories` | 読み込まれた `daily_brief` カテゴリ名 |
-| `detail` | degraded / error のときに理由が入る |
-| `categories_error` | カテゴリファイルの解析に失敗したときに入る |
+
+次の2つは、伝えるべきことがあるときだけ現れます。
+
+| キー | 現れる条件 |
+|---|---|
+| `detail` | バックエンド側の問題が起きたとき。環境変数の欠落（`status=error`・`auth=missing-env`）または Zabbix エラー（`status=degraded`・`auth=error`） |
+| `categories_error` | カテゴリファイルの解析に失敗したとき（`status=degraded`） |
+
+この2つは独立しています。カテゴリファイルが読めないことだけが原因の場合、
+`status=degraded` と `categories_error` は返りますが `detail` は**付きません**。
+バックエンド自体には問題が無かったからです。
 
 意図的に軽量です。認証を1回行い（キャッシュ済みセッションを再利用）、API バージョンを
 読むだけで、問題やアイテムの走査はしません。セッション開始時やツール呼び出しの
