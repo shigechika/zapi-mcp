@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/shigechika/zapi-mcp/compare/v0.6.2...v0.6.3) (2026-08-06)
+
+
+### Bug Fixes
+
+* **deps:** ignore mcp major version updates in Dependabot ([#50](https://github.com/shigechika/zapi-mcp/issues/50)) ([a11c16b](https://github.com/shigechika/zapi-mcp/commit/a11c16b49557bc78b39cad51e1946a25bceeb1da))
+
 ## [0.6.2](https://github.com/shigechika/zapi-mcp/compare/v0.6.1...v0.6.2) (2026-07-31)
 
 
