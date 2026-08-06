@@ -12,6 +12,8 @@
 バージョン適応認証：Zabbix 6.0 LTS（`user` ＋ `auth` フィールド）で動作し、
 6.4 / 7.0（`username` ＋ `Authorization: Bearer`）にも前方互換。
 
+ドキュメント: <https://shigechika.github.io/zapi-mcp/ja/>
+
 ## 機能
 
 | ツール | 説明 |

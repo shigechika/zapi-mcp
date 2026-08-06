@@ -15,6 +15,8 @@ server stays generic.
 Version-adaptive auth: works against Zabbix 6.0 LTS (`user` + `auth` field) and
 forward-compatible with 6.4 / 7.0 (`username` + `Authorization: Bearer`).
 
+Documentation: <https://shigechika.github.io/zapi-mcp/>
+
 ## Features
 
 | Tool | Description |
