@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/shigechika/zapi-mcp/compare/v0.6.3...v0.7.0) (2026-08-08)
+
+
+### Features
+
+* add pr-gate.yml admission control caller ([#55](https://github.com/shigechika/zapi-mcp/issues/55)) ([12674e7](https://github.com/shigechika/zapi-mcp/commit/12674e7c5289939c142679325e5ec68b9fcc8961))
+
 ## [0.6.3](https://github.com/shigechika/zapi-mcp/compare/v0.6.2...v0.6.3) (2026-08-06)
 
 
