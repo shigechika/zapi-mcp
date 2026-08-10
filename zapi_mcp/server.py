@@ -599,3 +599,58 @@ def acknowledge_problem(event_ids: str, message: str) -> str:
         reset_client()
         return f"Zabbix error: {e}"
     return f"Acknowledged {len(ids)} event(s): {result}"
+
+
+# ------------------------------------------------------------------
+# Maintenance
+# ------------------------------------------------------------------
+@mcp.tool()
+def set_maintenance(
+    since: str,
+    till: str,
+    name: str,
+    description: str,
+    location: str | None = None,
+    hosts: str | None = None,
+) -> str:
+    """Create a Zabbix maintenance window, selecting hosts by location tag OR
+    by explicit host name (exactly one of the two -- not both, not neither).
+
+    Unlike acknowledge_problem (which only marks existing problems as seen),
+    this suppresses NEW problem notifications for the matched hosts during the
+    window. Idempotent: calling again with the same name/since/mode produces
+    the same window (its id is returned) instead of a duplicate; the two
+    modes never collide with each other even with the same name/since.
+
+    Args:
+        since: Window start, "%Y/%m/%d %H:%M:%S" (e.g. "2026/08/10 11:00:00")
+        till: Window end, "%Y/%m/%d %H:%M:%S"
+        name: Maintenance window name prefix (the start time is appended)
+        description: Free-text reason, shown in the Zabbix UI
+        location: Value of the hosts' "location" tag to match (e.g. "CIT").
+            Mutually exclusive with hosts.
+        hosts: Comma-separated exact host (technical) names, for when the
+            affected hosts don't share a location tag or precise host-level
+            control is wanted. No per-port selection. Mutually exclusive
+            with location.
+    """
+    if bool(location) == bool(hosts):
+        return "Specify exactly one of location or hosts (not both, not neither)."
+    try:
+        client = _client()
+        if location:
+            maintenance_ids = client.set_maintenance(location, since, till, name, description)
+            target = f"location='{location}'"
+        else:
+            host_list = [h.strip() for h in hosts.split(",") if h.strip()]
+            maintenance_ids = client.set_maintenance_for_hosts(host_list, since, till, name, description)
+            target = f"hosts={host_list}"
+    except KeyError as e:
+        return f"Missing environment variable: {e}"
+    except ZapiError as e:
+        reset_client()
+        return f"Zabbix error: {e}"
+    return (
+        f"Maintenance window active for {target} from {since} to {till} "
+        f"(maintenance id(s): {', '.join(maintenance_ids)})."
+    )

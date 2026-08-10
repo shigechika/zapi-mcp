@@ -177,6 +177,67 @@ def test_acknowledge_empty_ids():
     assert out == "No event IDs provided."
 
 
+# ---- set_maintenance -------------------------------------------------------
+
+
+def test_set_maintenance_by_location():
+    r = make_router(
+        results={
+            "maintenance.get": [],
+            "maintenance.create": {"maintenanceids": ["1"]},
+            "host.get": [{"hostid": "10"}],
+        }
+    )
+    with r:
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", location="CIT")
+    call = next(x["payload"] for x in r.captured if x["payload"]["method"] == "maintenance.create")
+    assert call["params"]["tags"] == [{"tag": "location", "operator": "0", "value": "CIT"}]
+    assert "location='CIT'" in out
+    assert "maintenance id(s): 1" in out
+
+
+def test_set_maintenance_by_hosts():
+    r = make_router(
+        results={
+            "maintenance.get": [],
+            "maintenance.create": {"maintenanceids": ["2"]},
+            "host.get": [{"hostid": "11", "host": "cit-sw-to16"}, {"hostid": "12", "host": "cit-sw-ke22"}],
+        }
+    )
+    with r:
+        out = _call(server.set_maintenance)(
+            "2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", hosts="cit-sw-to16, cit-sw-ke22"
+        )
+    call = next(x["payload"] for x in r.captured if x["payload"]["method"] == "maintenance.create")
+    assert "tags" not in call["params"]
+    assert sorted(call["params"]["hostids"]) == ["11", "12"]
+    assert "hosts=['cit-sw-to16', 'cit-sw-ke22']" in out
+
+
+def test_set_maintenance_rejects_neither_location_nor_hosts():
+    with make_router():
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc")
+    assert "Specify exactly one" in out
+
+
+def test_set_maintenance_rejects_both_location_and_hosts():
+    with make_router():
+        out = _call(server.set_maintenance)(
+            "2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", location="CIT", hosts="cit-sw-to16"
+        )
+    assert "Specify exactly one" in out
+
+
+def test_set_maintenance_reports_unresolved_host_as_zabbix_error():
+    r = make_router(results={"maintenance.get": [], "host.get": []})
+    with r:
+        out = _call(server.set_maintenance)(
+            "2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", hosts="cit-sw-typo"
+        )
+    assert out.startswith("Zabbix error:")
+    assert "cit-sw-typo" in out
+
+
 # ---- health_check ---------------------------------------------------------
 
 

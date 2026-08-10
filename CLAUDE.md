@@ -22,9 +22,14 @@ to guard against stdio newline regressions).
 
 ## Architecture
 
-- `zapi_mcp/server.py` — FastMCP server with 6 tools: `health_check`,
+- `zapi_mcp/server.py` — FastMCP server with 7 tools: `health_check`,
   `daily_brief`, `get_problems`, `get_hosts`, `get_host_items`,
-  `acknowledge_problem`.
+  `acknowledge_problem`, `set_maintenance` (idempotent maintenance window,
+  by `location` tag or by exact host name — exactly one of the two required;
+  thin wrapper over `zapi_lib.ZapiClient.set_maintenance`/
+  `set_maintenance_for_hosts`, which live on the base client, not just
+  `ZapiProvisioner`, specifically so this MCP server's plain `ZapiClient`
+  can call them).
 - `zapi_mcp/client.py` — backward-compatible re-export shim; the real
   `ZapiClient`/`ZapiError`/`tag_filter` now live in the separate `zapi-lib`
   package.
