@@ -297,6 +297,20 @@ def test_set_maintenance_verification_malformed_till_does_not_raise():
     assert "(unconfirmed)" in out
 
 
+def test_set_maintenance_verification_out_of_range_till_does_not_raise():
+    # A numeric-but-out-of-range active_till (e.g. corrupted response) makes
+    # int() succeed but datetime.fromtimestamp() raise (ValueError/OSError/
+    # OverflowError, platform-dependent) -- the broad `except Exception`
+    # around this best-effort step must catch all of them, not just the
+    # non-numeric-string case above.
+    r = make_router(results={"maintenance.get": [{"maintenanceid": "42", "active_till": "99999999999999"}]})
+    with r:
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", location="CIT")
+    assert "Zabbix error" not in out
+    assert "maintenance id(s): 42" in out
+    assert "(unconfirmed)" in out
+
+
 def test_set_maintenance_rejects_comma_only_hosts():
     # hosts="," survives the whitespace-strip (non-empty after strip()) but
     # reduces to zero real names once split -- must be rejected here, not

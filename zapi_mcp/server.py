@@ -694,10 +694,6 @@ def set_maintenance(
             actual_till = datetime.fromtimestamp(int(windows[0]["active_till"])).strftime("%Y/%m/%d %H:%M:%S")
         else:
             actual_till = f"{till} (unconfirmed)"
-    except (KeyError, ValueError):
-        # Malformed response shape (missing/non-numeric active_till) -- the
-        # write still succeeded, this is purely "couldn't confirm" (/code-review R5F1).
-        actual_till = f"{till} (unconfirmed)"
     except ZapiError:
         # Unlike the write's own ZapiError handler above (which may fire on
         # pure local validation, no network touched -- see #60), this one is
@@ -707,6 +703,14 @@ def set_maintenance(
         # session (/code-review R5F2) -- but still report the write's own
         # (already real) success, just unconfirmed.
         reset_client()
+        actual_till = f"{till} (unconfirmed)"
+    except Exception:
+        # Anything else (missing/non-numeric active_till -> KeyError/ValueError,
+        # or an out-of-range epoch -> OSError/OverflowError from
+        # datetime.fromtimestamp, platform-dependent) is still just a failed
+        # *verification*, not a failed write -- deliberately broad so no
+        # response-shape surprise here can ever crash past a best-effort
+        # confirmation step (/code-review R5F1).
         actual_till = f"{till} (unconfirmed)"
     return (
         f"Maintenance window active for {target} from {since} to {actual_till} "
