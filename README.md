@@ -27,6 +27,7 @@ Documentation: <https://shigechika.github.io/zapi-mcp/>
 | `get_hosts` | List hosts filtered by role/tag/group, with IP and tags |
 | `get_host_items` | Current item values for a host (server-side host filter) |
 | `acknowledge_problem` | Acknowledge problems and add a message (does not close them) |
+| `set_maintenance` | Open an idempotent Zabbix maintenance window, selecting hosts by `location` tag or by exact host name (exactly one of the two) |
 
 ## Setup
 
@@ -65,7 +66,8 @@ Set the following environment variables:
 | `ZABBIX_BRIEF_PROBLEM_LIMIT` | Max active problems `daily_brief` fetches per call before counting the rest | `1000` |
 
 The API user needs read permission for the host groups you query, plus
-acknowledge permission if you use `acknowledge_problem`.
+acknowledge permission if you use `acknowledge_problem`, and maintenance-write
+permission if you use `set_maintenance`.
 
 ### Active problems in `daily_brief`
 
@@ -215,9 +217,11 @@ uv run python scripts/smoke_test.py
 uv run python scripts/smoke_test.py --only get_problems --traceback
 ```
 
-- **Read-only.** `acknowledge_problem` is skipped by name — an acknowledgement
-  is visible to every operator and cannot be quietly undone — and a test
-  enforces that. The report prints tool names and statuses only, never
+- **Read-only.** `acknowledge_problem` and `set_maintenance` are skipped by
+  name — an acknowledgement is visible to every operator and cannot be
+  quietly undone, and `set_maintenance` opens a real maintenance window that
+  suppresses alerts — and a test enforces that. The report prints tool names
+  and statuses only, never
   payloads; server-authored error text is redacted too, since Zabbix quotes the
   host it was asked about. `--traceback` still shows the full text on the
   operator's own terminal.

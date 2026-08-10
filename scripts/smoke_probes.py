@@ -99,4 +99,5 @@ PROBES: dict[str, Probe] = {
     ),
     # -- state-changing tools: never exercised ----------------------------
     "acknowledge_problem": Probe(skip="writes to Zabbix: an acknowledgement is visible to every operator"),
+    "set_maintenance": Probe(skip="writes to Zabbix: opens a real maintenance window, suppressing alerts"),
 }

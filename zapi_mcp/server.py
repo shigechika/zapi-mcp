@@ -599,3 +599,122 @@ def acknowledge_problem(event_ids: str, message: str) -> str:
         reset_client()
         return f"Zabbix error: {e}"
     return f"Acknowledged {len(ids)} event(s): {result}"
+
+
+# ------------------------------------------------------------------
+# Maintenance
+# ------------------------------------------------------------------
+@mcp.tool()
+def set_maintenance(
+    since: str,
+    till: str,
+    name: str,
+    description: str,
+    location: str | None = None,
+    hosts: str | None = None,
+) -> str:
+    """Create a Zabbix maintenance window, selecting hosts by location tag OR
+    by explicit host name (exactly one of the two -- not both, not neither).
+
+    Unlike acknowledge_problem (which only marks existing problems as seen),
+    this suppresses NEW problem notifications for the matched hosts during the
+    window.
+
+    IMPORTANT -- idempotency key is `name` + `since` (not the target): the two
+    selection modes (location vs. hosts) can't collide with each other, but
+    within the SAME mode, calling again with the same name/since always
+    returns the FIRST window created under that name/since, even if this
+    call's location/hosts is different. A second call with a different
+    target but a name/since that collides with an earlier one (same mode)
+    silently protects nothing for the new target (no error, no window
+    created for it) -- pick a `name` that uniquely identifies the actual
+    target whenever more than one maintenance might be open around the same
+    time (shigechika/zapi-mcp#59).
+
+    IMPORTANT -- since/till are naive local-server-time strings: parsed and
+    converted via the MCP server process's own timezone, not a fixed zone.
+    If the server doesn't run in the timezone you mean, convert first.
+
+    Args:
+        since: Window start, "%Y/%m/%d %H:%M:%S" (e.g. "2026/08/10 11:00:00"),
+            interpreted in the MCP server process's local timezone
+        till: Window end, "%Y/%m/%d %H:%M:%S", same timezone caveat as since
+        name: Maintenance window name prefix (the start time is appended).
+            Also the idempotency key together with since -- see above
+        description: Free-text reason, shown in the Zabbix UI
+        location: Value of the hosts' "location" tag to match (e.g. "CIT").
+            Mutually exclusive with hosts.
+        hosts: Comma-separated exact host (technical) names, for when the
+            affected hosts don't share a location tag or precise host-level
+            control is wanted. No per-port selection. Mutually exclusive
+            with location.
+    """
+    # Normalize before validating: a whitespace-only string is truthy
+    # (`bool("   ")` is True), so without stripping first, `location="   "`
+    # would sail past the "exactly one" check and either match zero hosts
+    # (tag mode has no downstream empty check) or hit zapi-lib's empty-list
+    # ZapiError (host mode) with a confusing message about hosts, not about
+    # the whitespace that caused it.
+    location = location.strip() if location else None
+    hosts = hosts.strip() if hosts else None
+    if bool(location) == bool(hosts):
+        return "Specify exactly one of location or hosts (not both, not neither)."
+    host_list: list[str] | None = None
+    if hosts:
+        # hosts="," / ",,," / " , " survives the strip above (non-empty
+        # after stripping outer whitespace) but reduces to zero real names
+        # once split -- catch that here instead of letting it reach
+        # zapi-lib's local, pre-network ZapiError and get mislabeled
+        # "Zabbix error:" below (it never touched Zabbix at all).
+        host_list = [h.strip() for h in hosts.split(",") if h.strip()]
+        if not host_list:
+            return "hosts must contain at least one non-empty host name."
+    try:
+        client = _client()
+        if location:
+            maintenance_ids = client.set_maintenance(location, since, till, name, description)
+            target = f"location='{location}'"
+        else:
+            maintenance_ids = client.set_maintenance_for_hosts(host_list, since, till, name, description)
+            target = f"hosts={', '.join(host_list)}"
+    except KeyError as e:
+        return f"Missing environment variable: {e}"
+    except ZapiError as e:
+        reset_client()
+        return f"Zabbix error: {e}"
+
+    # The write above already succeeded -- maintenance_ids is real. A failure
+    # in this best-effort verification read (fetching the window's actual
+    # active_till, e.g. on the idempotent short-circuit where a stale caller
+    # `till` would otherwise be echoed back) must never turn a genuine
+    # success into a reported failure (/code-review R4F1); fall back to the
+    # caller's own till and note that it couldn't be confirmed.
+    actual_till = till
+    try:
+        windows = client.call("maintenance.get", {"maintenanceids": maintenance_ids, "output": ["active_till"]})
+        if windows:
+            actual_till = datetime.fromtimestamp(int(windows[0]["active_till"])).strftime("%Y/%m/%d %H:%M:%S")
+        else:
+            actual_till = f"{till} (unconfirmed)"
+    except ZapiError:
+        # Unlike the write's own ZapiError handler above (which may fire on
+        # pure local validation, no network touched -- see #60), this one is
+        # always a real API call, so a failure here plausibly means the
+        # session went bad between the write and this read. Reset so the
+        # *next* tool call re-authenticates instead of reusing a dead
+        # session (/code-review R5F2) -- but still report the write's own
+        # (already real) success, just unconfirmed.
+        reset_client()
+        actual_till = f"{till} (unconfirmed)"
+    except Exception:
+        # Anything else (missing/non-numeric active_till -> KeyError/ValueError,
+        # or an out-of-range epoch -> OSError/OverflowError from
+        # datetime.fromtimestamp, platform-dependent) is still just a failed
+        # *verification*, not a failed write -- deliberately broad so no
+        # response-shape surprise here can ever crash past a best-effort
+        # confirmation step (/code-review R5F1).
+        actual_till = f"{till} (unconfirmed)"
+    return (
+        f"Maintenance window active for {target} from {since} to {actual_till} "
+        f"(maintenance id(s): {', '.join(maintenance_ids)})."
+    )

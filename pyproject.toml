@@ -23,8 +23,10 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: System :: Monitoring",
 ]
+# zapi-lib 0.5.1: first release with set_maintenance_for_hosts on ZapiClient
+# (not just ZapiProvisioner), which this server's plain ZapiClient needs.
 dependencies = [
-    "zapi-lib>=0.1,<1",
+    "zapi-lib>=0.5.1,<1",
     "mcp>=1.2,<2",
 ]
 

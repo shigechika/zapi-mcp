@@ -1,6 +1,7 @@
 """Tests for MCP tool output (server.py)."""
 
 import json
+import time
 from datetime import datetime
 
 import httpx
@@ -175,6 +176,222 @@ def test_acknowledge_empty_ids():
     with make_router():
         out = _call(server.acknowledge_problem)("  ", "msg")
     assert out == "No event IDs provided."
+
+
+# ---- set_maintenance -------------------------------------------------------
+
+
+def _sequenced_maintenance_get_router(captured, *, first_result, second_result, extra_results=None):
+    """A handler distinguishing zapi-lib's own idempotency-check maintenance.get
+    (call 1) from server.py's post-write verification maintenance.get (call 2) --
+    make_router's static per-method table can't do this, and without it, tests
+    for the "freshly created, confirmed till" branch silently exercise the
+    "(unconfirmed)" fallback instead (both calls would hit the same canned []).
+    ``captured`` (a list the caller owns) collects each request's payload,
+    mirroring conftest.make_router's own captured-list convention.
+    """
+    call_count = {"maintenance.get": 0}
+    table = dict(extra_results or {})
+
+    def handler(request):
+        payload = json.loads(request.content)
+        captured.append(payload)
+        method = payload["method"]
+        if method in ("apiinfo.version", "user.login"):
+            return httpx.Response(200, json={"result": "6.0.0" if method == "apiinfo.version" else "tok", "id": 1})
+        if method == "maintenance.get":
+            call_count["maintenance.get"] += 1
+            result = first_result if call_count["maintenance.get"] == 1 else second_result
+            return httpx.Response(200, json={"result": result, "id": 1})
+        return httpx.Response(200, json={"result": table.get(method, []), "id": 1})
+
+    return handler
+
+
+def test_set_maintenance_by_location():
+    captured = []
+    handler = _sequenced_maintenance_get_router(
+        captured,
+        first_result=[],  # zapi-lib's idempotency check: no existing window
+        second_result=[{"maintenanceid": "1", "active_till": "1786435200"}],  # our verification, post-create
+        extra_results={"maintenance.create": {"maintenanceids": ["1"]}, "host.get": [{"hostid": "10"}]},
+    )
+    with respx.mock(assert_all_called=False) as router:
+        router.post(ENDPOINT).mock(side_effect=handler)
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", location="CIT")
+    create_call = next(p for p in captured if p["method"] == "maintenance.create")
+    assert create_call["params"]["tags"] == [{"tag": "location", "operator": "0", "value": "CIT"}]
+    assert "location='CIT'" in out
+    assert "maintenance id(s): 1" in out
+    assert "(unconfirmed)" not in out  # the confirmed-till branch, not the fallback
+
+
+def test_set_maintenance_by_hosts():
+    captured = []
+    handler = _sequenced_maintenance_get_router(
+        captured,
+        first_result=[],
+        second_result=[{"maintenanceid": "2", "active_till": "1786435200"}],
+        extra_results={
+            "maintenance.create": {"maintenanceids": ["2"]},
+            "host.get": [{"hostid": "11", "host": "cit-sw-to16"}, {"hostid": "12", "host": "cit-sw-ke22"}],
+        },
+    )
+    with respx.mock(assert_all_called=False) as router:
+        router.post(ENDPOINT).mock(side_effect=handler)
+        out = _call(server.set_maintenance)(
+            "2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", hosts="cit-sw-to16, cit-sw-ke22"
+        )
+    create_call = next(p for p in captured if p["method"] == "maintenance.create")
+    assert "tags" not in create_call["params"]
+    assert sorted(create_call["params"]["hostids"]) == ["11", "12"]
+    assert "hosts=cit-sw-to16, cit-sw-ke22" in out
+    assert "(unconfirmed)" not in out
+
+
+def test_set_maintenance_reports_actual_window_till_not_caller_input():
+    # Idempotent short-circuit: a window with this name+since already
+    # exists. The tool must report the window's REAL active_till (queried
+    # fresh via maintenance.get), not blindly echo the caller's till --
+    # which, on this branch, may not match what Zabbix actually has.
+    real_till_dt = datetime.strptime("2026/08/10 13:00:00", "%Y/%m/%d %H:%M:%S")
+    real_till_epoch = int(time.mktime(real_till_dt.timetuple()))
+    r = make_router(results={"maintenance.get": [{"maintenanceid": "42", "active_till": str(real_till_epoch)}]})
+    with r:
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 18:00:00", "MW-", "desc", location="CIT")
+    assert "maintenance id(s): 42" in out
+    assert "to 2026/08/10 13:00:00" in out  # the window's real till
+    assert "18:00:00" not in out  # not the caller's (stale, on this branch) input
+
+
+def test_set_maintenance_verification_failure_does_not_report_overall_failure():
+    # R4F1: the write itself (idempotency lookup finding an existing window,
+    # in this case) already succeeded -- a transient failure in the
+    # follow-up best-effort verification read must not be reported as an
+    # overall "Zabbix error" when the maintenance window is, in fact, active.
+    call_count = {"maintenance.get": 0}
+
+    def handler(request):
+        payload = json.loads(request.content)
+        method = payload["method"]
+        if method in ("apiinfo.version", "user.login"):
+            return httpx.Response(200, json={"result": "6.0.0" if method == "apiinfo.version" else "tok", "id": 1})
+        if method == "maintenance.get":
+            call_count["maintenance.get"] += 1
+            if call_count["maintenance.get"] == 1:
+                return httpx.Response(200, json={"result": [{"maintenanceid": "42"}], "id": 1})  # zapi-lib's own check
+            return httpx.Response(200, json={"error": {"message": "temporary glitch"}, "id": 1})  # our verification
+        return httpx.Response(200, json={"result": [], "id": 1})
+
+    with respx.mock(assert_all_called=False) as router:
+        router.post(ENDPOINT).mock(side_effect=handler)
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", location="CIT")
+    assert "Zabbix error" not in out
+    assert "maintenance id(s): 42" in out
+    assert "(unconfirmed)" in out
+
+
+def test_set_maintenance_verification_resets_client_on_zapi_error():
+    # R5F2: unlike the write's own ZapiError handler (which may fire on pure
+    # local validation with no network touched), the verification read is
+    # always a real API call -- a failure there should reset the cached
+    # client so the *next* tool call re-authenticates instead of reusing a
+    # possibly-dead session.
+    call_count = {"maintenance.get": 0}
+
+    def handler(request):
+        payload = json.loads(request.content)
+        method = payload["method"]
+        if method in ("apiinfo.version", "user.login"):
+            return httpx.Response(200, json={"result": "6.0.0" if method == "apiinfo.version" else "tok", "id": 1})
+        if method == "maintenance.get":
+            call_count["maintenance.get"] += 1
+            if call_count["maintenance.get"] == 1:
+                return httpx.Response(200, json={"result": [{"maintenanceid": "42"}], "id": 1})
+            return httpx.Response(200, json={"error": {"message": "session expired"}, "id": 1})
+        return httpx.Response(200, json={"result": [], "id": 1})
+
+    with respx.mock(assert_all_called=False) as router:
+        router.post(ENDPOINT).mock(side_effect=handler)
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", location="CIT")
+    assert "Zabbix error" not in out
+    assert "(unconfirmed)" in out
+    assert server._CLIENT is None  # reset so the next call re-authenticates
+
+
+def test_set_maintenance_verification_malformed_till_does_not_raise():
+    # R5F1: a non-numeric active_till in the verification response must not
+    # let int() raise past the best-effort handler -- the write already
+    # succeeded, so this must degrade to unconfirmed, not crash.
+    r = make_router(results={"maintenance.get": [{"maintenanceid": "42", "active_till": "not-a-number"}]})
+    with r:
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", location="CIT")
+    assert "Zabbix error" not in out
+    assert "maintenance id(s): 42" in out
+    assert "(unconfirmed)" in out
+
+
+def test_set_maintenance_verification_out_of_range_till_does_not_raise():
+    # A numeric-but-out-of-range active_till (e.g. corrupted response) makes
+    # int() succeed but datetime.fromtimestamp() raise (ValueError/OSError/
+    # OverflowError, platform-dependent) -- the broad `except Exception`
+    # around this best-effort step must catch all of them, not just the
+    # non-numeric-string case above.
+    r = make_router(results={"maintenance.get": [{"maintenanceid": "42", "active_till": "99999999999999"}]})
+    with r:
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", location="CIT")
+    assert "Zabbix error" not in out
+    assert "maintenance id(s): 42" in out
+    assert "(unconfirmed)" in out
+
+
+def test_set_maintenance_rejects_comma_only_hosts():
+    # hosts="," survives the whitespace-strip (non-empty after strip()) but
+    # reduces to zero real names once split -- must be rejected here, not
+    # left to reach zapi-lib's local ZapiError and get mislabeled "Zabbix
+    # error:" even though it never touched Zabbix.
+    with make_router():
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", hosts=",,,")
+    assert "at least one non-empty host name" in out
+    assert "Zabbix error" not in out
+
+
+def test_set_maintenance_rejects_neither_location_nor_hosts():
+    with make_router():
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc")
+    assert "Specify exactly one" in out
+
+
+def test_set_maintenance_rejects_whitespace_only_location():
+    # bool("   ") is True, so without stripping first this would sail past
+    # the "exactly one" check and reach Zabbix with a nonsense tag value.
+    with make_router():
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", location="   ")
+    assert "Specify exactly one" in out
+
+
+def test_set_maintenance_rejects_whitespace_only_hosts():
+    with make_router():
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", hosts="   ")
+    assert "Specify exactly one" in out
+
+
+def test_set_maintenance_rejects_both_location_and_hosts():
+    with make_router():
+        out = _call(server.set_maintenance)(
+            "2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", location="CIT", hosts="cit-sw-to16"
+        )
+    assert "Specify exactly one" in out
+
+
+def test_set_maintenance_reports_unresolved_host_as_zabbix_error():
+    r = make_router(results={"maintenance.get": [], "host.get": []})
+    with r:
+        out = _call(server.set_maintenance)(
+            "2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", hosts="cit-sw-typo"
+        )
+    assert out.startswith("Zabbix error:")
+    assert "cit-sw-typo" in out
 
 
 # ---- health_check ---------------------------------------------------------

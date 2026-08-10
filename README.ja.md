@@ -24,6 +24,7 @@
 | `get_hosts` | role/タグ/グループでフィルタしたホスト一覧（IP・タグ付き） |
 | `get_host_items` | ホストのアイテム現在値（サーバ側でホスト絞り込み） |
 | `acknowledge_problem` | 問題の acknowledge とメッセージ追加（クローズはしない） |
+| `set_maintenance` | 冪等なZabbixメンテナンス期間を開く。`location` タグまたは個別ホスト名のどちらか一方で対象を指定 |
 
 ## インストール
 
@@ -62,7 +63,8 @@ pip install -e .
 | `ZABBIX_BRIEF_PROBLEM_LIMIT` | `daily_brief` が 1 回の呼び出しで取得するアクティブ問題の上限（超過分は件数のみ集計） | `1000` |
 
 API ユーザには照会するホストグループの参照権限が必要。`acknowledge_problem`
-を使う場合は acknowledge 権限も付与する。
+を使う場合は acknowledge 権限も、`set_maintenance` を使う場合はメンテナンス
+書き込み権限も付与する。
 
 ### `daily_brief` のアクティブな問題
 
@@ -212,8 +214,9 @@ uv run python scripts/smoke_test.py
 uv run python scripts/smoke_test.py --only get_problems --traceback
 ```
 
-- **読み取り専用**。`acknowledge_problem` は名前で除外する（承認は全オペレーターから
-  見えてしまい、こっそり取り消せない）。除外はテストで強制している。レポートに出るのは
+- **読み取り専用**。`acknowledge_problem` と `set_maintenance` は名前で除外する
+  （承認は全オペレーターから見えてしまいこっそり取り消せない、`set_maintenance` は
+  実際にアラートを抑制するメンテナンス期間を開いてしまう）。除外はテストで強制している。レポートに出るのは
   ツール名とステータスだけでペイロードは出さない。Zabbix のエラー文言は問い合わせた
   ホスト名を含むため、これも伏字にする（`--traceback` を付ければ実行者の端末には全文が出る）。
 - 実在のホスト・ホストグループ・タグ値を特定しうる引数は**実行時に発見**し、
