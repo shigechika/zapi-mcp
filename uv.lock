@@ -1200,14 +1200,14 @@ wheels = [
 
 [[package]]
 name = "zapi-lib"
-version = "0.2.0"
+version = "0.5.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/69/3e/b8474ebbc522aeb464da81b718a895ec2be8df44830d4adce09a61105d37/zapi_lib-0.2.0.tar.gz", hash = "sha256:c8aba88610a70179ea65ba79a33870c7d233aa6a818922ff3bfb2e0c17cc832f", size = 10678, upload-time = "2026-06-04T08:24:52.879Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/79/51/d5245d3833f08f6004596acd3bfc74a80854802fa5f630c0046d987571cf/zapi_lib-0.5.1.tar.gz", hash = "sha256:88a8ed0fcc064e61e942403cb451fc8215b553e8829b1823045fdb8fbe87c4b3", size = 21424, upload-time = "2026-08-10T04:31:12.991Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b8/9e/b15d3594da83608731283da3d7818de320096c2d1e308884d1aeb37dd292/zapi_lib-0.2.0-py3-none-any.whl", hash = "sha256:4f4c81232ab6047a846a2848cb95545be56edd288d5008e349d1699e40a23fd2", size = 7203, upload-time = "2026-06-04T08:24:51.681Z" },
+    { url = "https://files.pythonhosted.org/packages/df/58/75cf267996b3d0e0c51176b8a68bd439826d8dc534864cdfaf9c83b755fa/zapi_lib-0.5.1-py3-none-any.whl", hash = "sha256:9fa0cf607ea83507f397a5be7aeb3b312320e84c224acbf50029601f9cbaa4ef", size = 13699, upload-time = "2026-08-10T04:31:11.893Z" },
 ]
 
 [[package]]
