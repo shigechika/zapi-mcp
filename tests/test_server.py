@@ -1,6 +1,7 @@
 """Tests for MCP tool output (server.py)."""
 
 import json
+import time
 from datetime import datetime
 
 import httpx
@@ -212,6 +213,32 @@ def test_set_maintenance_by_hosts():
     assert "tags" not in call["params"]
     assert sorted(call["params"]["hostids"]) == ["11", "12"]
     assert "hosts=['cit-sw-to16', 'cit-sw-ke22']" in out
+
+
+def test_set_maintenance_reports_actual_window_till_not_caller_input():
+    # Idempotent short-circuit: a window with this name+since already
+    # exists. The tool must report the window's REAL active_till (queried
+    # fresh via maintenance.get), not blindly echo the caller's till --
+    # which, on this branch, may not match what Zabbix actually has.
+    real_till_dt = datetime.strptime("2026/08/10 13:00:00", "%Y/%m/%d %H:%M:%S")
+    real_till_epoch = int(time.mktime(real_till_dt.timetuple()))
+    r = make_router(results={"maintenance.get": [{"maintenanceid": "42", "active_till": str(real_till_epoch)}]})
+    with r:
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 18:00:00", "MW-", "desc", location="CIT")
+    assert "maintenance id(s): 42" in out
+    assert "to 2026/08/10 13:00:00" in out  # the window's real till
+    assert "18:00:00" not in out  # not the caller's (stale, on this branch) input
+
+
+def test_set_maintenance_rejects_comma_only_hosts():
+    # hosts="," survives the whitespace-strip (non-empty after strip()) but
+    # reduces to zero real names once split -- must be rejected here, not
+    # left to reach zapi-lib's local ZapiError and get mislabeled "Zabbix
+    # error:" even though it never touched Zabbix.
+    with make_router():
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", hosts=",,,")
+    assert "at least one non-empty host name" in out
+    assert "Zabbix error" not in out
 
 
 def test_set_maintenance_rejects_neither_location_nor_hosts():

@@ -618,14 +618,27 @@ def set_maintenance(
 
     Unlike acknowledge_problem (which only marks existing problems as seen),
     this suppresses NEW problem notifications for the matched hosts during the
-    window. Idempotent: calling again with the same name/since/mode produces
-    the same window (its id is returned) instead of a duplicate; the two
-    modes never collide with each other even with the same name/since.
+    window.
+
+    IMPORTANT -- idempotency key is `name` + `since` ONLY (not the target):
+    calling again with the same name/since always returns the FIRST window
+    created under that name/since, even if this call's location/hosts is
+    different. A second call with a different target but a name/since that
+    collides with an earlier one silently protects nothing for the new
+    target (no error, no window created for it) -- pick a `name` that
+    uniquely identifies the actual target whenever more than one maintenance
+    might be open around the same time (shigechika/zapi-mcp#59).
+
+    IMPORTANT -- since/till are naive local-server-time strings: parsed and
+    converted via the MCP server process's own timezone, not a fixed zone.
+    If the server doesn't run in the timezone you mean, convert first.
 
     Args:
-        since: Window start, "%Y/%m/%d %H:%M:%S" (e.g. "2026/08/10 11:00:00")
-        till: Window end, "%Y/%m/%d %H:%M:%S"
-        name: Maintenance window name prefix (the start time is appended)
+        since: Window start, "%Y/%m/%d %H:%M:%S" (e.g. "2026/08/10 11:00:00"),
+            interpreted in the MCP server process's local timezone
+        till: Window end, "%Y/%m/%d %H:%M:%S", same timezone caveat as since
+        name: Maintenance window name prefix (the start time is appended).
+            Also the idempotency key together with since -- see above
         description: Free-text reason, shown in the Zabbix UI
         location: Value of the hosts' "location" tag to match (e.g. "CIT").
             Mutually exclusive with hosts.
@@ -644,21 +657,40 @@ def set_maintenance(
     hosts = hosts.strip() if hosts else None
     if bool(location) == bool(hosts):
         return "Specify exactly one of location or hosts (not both, not neither)."
+    host_list: list[str] | None = None
+    if hosts:
+        # hosts="," / ",,," / " , " survives the strip above (non-empty
+        # after stripping outer whitespace) but reduces to zero real names
+        # once split -- catch that here instead of letting it reach
+        # zapi-lib's local, pre-network ZapiError and get mislabeled
+        # "Zabbix error:" below (it never touched Zabbix at all).
+        host_list = [h.strip() for h in hosts.split(",") if h.strip()]
+        if not host_list:
+            return "hosts must contain at least one non-empty host name."
     try:
         client = _client()
         if location:
             maintenance_ids = client.set_maintenance(location, since, till, name, description)
             target = f"location='{location}'"
         else:
-            host_list = [h.strip() for h in hosts.split(",") if h.strip()]
             maintenance_ids = client.set_maintenance_for_hosts(host_list, since, till, name, description)
             target = f"hosts={host_list}"
+        # Report what Zabbix actually has, not blindly this call's since/till:
+        # on the idempotent short-circuit (a window with this name+since
+        # already existed), the *existing* window's real active_till may
+        # differ from what was just passed -- see the idempotency-key
+        # caveat in the docstring.
+        windows = client.call("maintenance.get", {"maintenanceids": maintenance_ids, "output": ["active_till"]})
     except KeyError as e:
         return f"Missing environment variable: {e}"
     except ZapiError as e:
         reset_client()
         return f"Zabbix error: {e}"
+    if windows:
+        actual_till = datetime.fromtimestamp(int(windows[0]["active_till"])).strftime("%Y/%m/%d %H:%M:%S")
+    else:
+        actual_till = till  # maintenance.get found nothing back (unexpected); fall back to the request
     return (
-        f"Maintenance window active for {target} from {since} to {till} "
+        f"Maintenance window active for {target} from {since} to {actual_till} "
         f"(maintenance id(s): {', '.join(maintenance_ids)})."
     )

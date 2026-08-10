@@ -48,7 +48,7 @@ ADDRESS_SHAPES = {
 IDENTIFIER_ARGS = {"host", "group", "tag_name", "tag_value", "role"}
 
 #: Tools that change state. The smoke test must never call these.
-STATE_CHANGING = {"acknowledge_problem"}
+STATE_CHANGING = {"acknowledge_problem", "set_maintenance"}
 
 
 def _registered_tool_names() -> set[str]:
