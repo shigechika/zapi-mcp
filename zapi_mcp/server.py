@@ -675,21 +675,27 @@ def set_maintenance(
         else:
             maintenance_ids = client.set_maintenance_for_hosts(host_list, since, till, name, description)
             target = f"hosts={host_list}"
-        # Report what Zabbix actually has, not blindly this call's since/till:
-        # on the idempotent short-circuit (a window with this name+since
-        # already existed), the *existing* window's real active_till may
-        # differ from what was just passed -- see the idempotency-key
-        # caveat in the docstring.
-        windows = client.call("maintenance.get", {"maintenanceids": maintenance_ids, "output": ["active_till"]})
     except KeyError as e:
         return f"Missing environment variable: {e}"
     except ZapiError as e:
         reset_client()
         return f"Zabbix error: {e}"
-    if windows:
-        actual_till = datetime.fromtimestamp(int(windows[0]["active_till"])).strftime("%Y/%m/%d %H:%M:%S")
-    else:
-        actual_till = till  # maintenance.get found nothing back (unexpected); fall back to the request
+
+    # The write above already succeeded -- maintenance_ids is real. A failure
+    # in this best-effort verification read (fetching the window's actual
+    # active_till, e.g. on the idempotent short-circuit where a stale caller
+    # `till` would otherwise be echoed back) must never turn a genuine
+    # success into a reported failure (/code-review R4F1); fall back to the
+    # caller's own till and note that it couldn't be confirmed.
+    actual_till = till
+    try:
+        windows = client.call("maintenance.get", {"maintenanceids": maintenance_ids, "output": ["active_till"]})
+        if windows:
+            actual_till = datetime.fromtimestamp(int(windows[0]["active_till"])).strftime("%Y/%m/%d %H:%M:%S")
+        else:
+            actual_till = f"{till} (unconfirmed)"
+    except (KeyError, ZapiError):
+        actual_till = f"{till} (unconfirmed)"
     return (
         f"Maintenance window active for {target} from {since} to {actual_till} "
         f"(maintenance id(s): {', '.join(maintenance_ids)})."

@@ -230,6 +230,33 @@ def test_set_maintenance_reports_actual_window_till_not_caller_input():
     assert "18:00:00" not in out  # not the caller's (stale, on this branch) input
 
 
+def test_set_maintenance_verification_failure_does_not_report_overall_failure():
+    # R4F1: the write itself (idempotency lookup finding an existing window,
+    # in this case) already succeeded -- a transient failure in the
+    # follow-up best-effort verification read must not be reported as an
+    # overall "Zabbix error" when the maintenance window is, in fact, active.
+    call_count = {"maintenance.get": 0}
+
+    def handler(request):
+        payload = json.loads(request.content)
+        method = payload["method"]
+        if method in ("apiinfo.version", "user.login"):
+            return httpx.Response(200, json={"result": "6.0.0" if method == "apiinfo.version" else "tok", "id": 1})
+        if method == "maintenance.get":
+            call_count["maintenance.get"] += 1
+            if call_count["maintenance.get"] == 1:
+                return httpx.Response(200, json={"result": [{"maintenanceid": "42"}], "id": 1})  # zapi-lib's own check
+            return httpx.Response(200, json={"error": {"message": "temporary glitch"}, "id": 1})  # our verification
+        return httpx.Response(200, json={"result": [], "id": 1})
+
+    with respx.mock(assert_all_called=False) as router:
+        router.post(ENDPOINT).mock(side_effect=handler)
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", location="CIT")
+    assert "Zabbix error" not in out
+    assert "maintenance id(s): 42" in out
+    assert "(unconfirmed)" in out
+
+
 def test_set_maintenance_rejects_comma_only_hosts():
     # hosts="," survives the whitespace-strip (non-empty after strip()) but
     # reduces to zero real names once split -- must be rejected here, not
