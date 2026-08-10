@@ -220,6 +220,20 @@ def test_set_maintenance_rejects_neither_location_nor_hosts():
     assert "Specify exactly one" in out
 
 
+def test_set_maintenance_rejects_whitespace_only_location():
+    # bool("   ") is True, so without stripping first this would sail past
+    # the "exactly one" check and reach Zabbix with a nonsense tag value.
+    with make_router():
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", location="   ")
+    assert "Specify exactly one" in out
+
+
+def test_set_maintenance_rejects_whitespace_only_hosts():
+    with make_router():
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", hosts="   ")
+    assert "Specify exactly one" in out
+
+
 def test_set_maintenance_rejects_both_location_and_hosts():
     with make_router():
         out = _call(server.set_maintenance)(

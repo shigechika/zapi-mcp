@@ -634,6 +634,14 @@ def set_maintenance(
             control is wanted. No per-port selection. Mutually exclusive
             with location.
     """
+    # Normalize before validating: a whitespace-only string is truthy
+    # (`bool("   ")` is True), so without stripping first, `location="   "`
+    # would sail past the "exactly one" check and either match zero hosts
+    # (tag mode has no downstream empty check) or hit zapi-lib's empty-list
+    # ZapiError (host mode) with a confusing message about hosts, not about
+    # the whitespace that caused it.
+    location = location.strip() if location else None
+    hosts = hosts.strip() if hosts else None
     if bool(location) == bool(hosts):
         return "Specify exactly one of location or hosts (not both, not neither)."
     try:
