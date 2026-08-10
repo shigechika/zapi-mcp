@@ -257,6 +257,46 @@ def test_set_maintenance_verification_failure_does_not_report_overall_failure():
     assert "(unconfirmed)" in out
 
 
+def test_set_maintenance_verification_resets_client_on_zapi_error():
+    # R5F2: unlike the write's own ZapiError handler (which may fire on pure
+    # local validation with no network touched), the verification read is
+    # always a real API call -- a failure there should reset the cached
+    # client so the *next* tool call re-authenticates instead of reusing a
+    # possibly-dead session.
+    call_count = {"maintenance.get": 0}
+
+    def handler(request):
+        payload = json.loads(request.content)
+        method = payload["method"]
+        if method in ("apiinfo.version", "user.login"):
+            return httpx.Response(200, json={"result": "6.0.0" if method == "apiinfo.version" else "tok", "id": 1})
+        if method == "maintenance.get":
+            call_count["maintenance.get"] += 1
+            if call_count["maintenance.get"] == 1:
+                return httpx.Response(200, json={"result": [{"maintenanceid": "42"}], "id": 1})
+            return httpx.Response(200, json={"error": {"message": "session expired"}, "id": 1})
+        return httpx.Response(200, json={"result": [], "id": 1})
+
+    with respx.mock(assert_all_called=False) as router:
+        router.post(ENDPOINT).mock(side_effect=handler)
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", location="CIT")
+    assert "Zabbix error" not in out
+    assert "(unconfirmed)" in out
+    assert server._CLIENT is None  # reset so the next call re-authenticates
+
+
+def test_set_maintenance_verification_malformed_till_does_not_raise():
+    # R5F1: a non-numeric active_till in the verification response must not
+    # let int() raise past the best-effort handler -- the write already
+    # succeeded, so this must degrade to unconfirmed, not crash.
+    r = make_router(results={"maintenance.get": [{"maintenanceid": "42", "active_till": "not-a-number"}]})
+    with r:
+        out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", location="CIT")
+    assert "Zabbix error" not in out
+    assert "maintenance id(s): 42" in out
+    assert "(unconfirmed)" in out
+
+
 def test_set_maintenance_rejects_comma_only_hosts():
     # hosts="," survives the whitespace-strip (non-empty after strip()) but
     # reduces to zero real names once split -- must be rejected here, not
