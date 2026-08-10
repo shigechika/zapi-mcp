@@ -620,14 +620,16 @@ def set_maintenance(
     this suppresses NEW problem notifications for the matched hosts during the
     window.
 
-    IMPORTANT -- idempotency key is `name` + `since` ONLY (not the target):
-    calling again with the same name/since always returns the FIRST window
-    created under that name/since, even if this call's location/hosts is
-    different. A second call with a different target but a name/since that
-    collides with an earlier one silently protects nothing for the new
-    target (no error, no window created for it) -- pick a `name` that
-    uniquely identifies the actual target whenever more than one maintenance
-    might be open around the same time (shigechika/zapi-mcp#59).
+    IMPORTANT -- idempotency key is `name` + `since` (not the target): the two
+    selection modes (location vs. hosts) can't collide with each other, but
+    within the SAME mode, calling again with the same name/since always
+    returns the FIRST window created under that name/since, even if this
+    call's location/hosts is different. A second call with a different
+    target but a name/since that collides with an earlier one (same mode)
+    silently protects nothing for the new target (no error, no window
+    created for it) -- pick a `name` that uniquely identifies the actual
+    target whenever more than one maintenance might be open around the same
+    time (shigechika/zapi-mcp#59).
 
     IMPORTANT -- since/till are naive local-server-time strings: parsed and
     converted via the MCP server process's own timezone, not a fixed zone.
@@ -674,7 +676,7 @@ def set_maintenance(
             target = f"location='{location}'"
         else:
             maintenance_ids = client.set_maintenance_for_hosts(host_list, since, till, name, description)
-            target = f"hosts={host_list}"
+            target = f"hosts={', '.join(host_list)}"
     except KeyError as e:
         return f"Missing environment variable: {e}"
     except ZapiError as e:

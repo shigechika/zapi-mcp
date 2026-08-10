@@ -181,38 +181,72 @@ def test_acknowledge_empty_ids():
 # ---- set_maintenance -------------------------------------------------------
 
 
+def _sequenced_maintenance_get_router(captured, *, first_result, second_result, extra_results=None):
+    """A handler distinguishing zapi-lib's own idempotency-check maintenance.get
+    (call 1) from server.py's post-write verification maintenance.get (call 2) --
+    make_router's static per-method table can't do this, and without it, tests
+    for the "freshly created, confirmed till" branch silently exercise the
+    "(unconfirmed)" fallback instead (both calls would hit the same canned []).
+    ``captured`` (a list the caller owns) collects each request's payload,
+    mirroring conftest.make_router's own captured-list convention.
+    """
+    call_count = {"maintenance.get": 0}
+    table = dict(extra_results or {})
+
+    def handler(request):
+        payload = json.loads(request.content)
+        captured.append(payload)
+        method = payload["method"]
+        if method in ("apiinfo.version", "user.login"):
+            return httpx.Response(200, json={"result": "6.0.0" if method == "apiinfo.version" else "tok", "id": 1})
+        if method == "maintenance.get":
+            call_count["maintenance.get"] += 1
+            result = first_result if call_count["maintenance.get"] == 1 else second_result
+            return httpx.Response(200, json={"result": result, "id": 1})
+        return httpx.Response(200, json={"result": table.get(method, []), "id": 1})
+
+    return handler
+
+
 def test_set_maintenance_by_location():
-    r = make_router(
-        results={
-            "maintenance.get": [],
-            "maintenance.create": {"maintenanceids": ["1"]},
-            "host.get": [{"hostid": "10"}],
-        }
+    captured = []
+    handler = _sequenced_maintenance_get_router(
+        captured,
+        first_result=[],  # zapi-lib's idempotency check: no existing window
+        second_result=[{"maintenanceid": "1", "active_till": "1786435200"}],  # our verification, post-create
+        extra_results={"maintenance.create": {"maintenanceids": ["1"]}, "host.get": [{"hostid": "10"}]},
     )
-    with r:
+    with respx.mock(assert_all_called=False) as router:
+        router.post(ENDPOINT).mock(side_effect=handler)
         out = _call(server.set_maintenance)("2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", location="CIT")
-    call = next(x["payload"] for x in r.captured if x["payload"]["method"] == "maintenance.create")
-    assert call["params"]["tags"] == [{"tag": "location", "operator": "0", "value": "CIT"}]
+    create_call = next(p for p in captured if p["method"] == "maintenance.create")
+    assert create_call["params"]["tags"] == [{"tag": "location", "operator": "0", "value": "CIT"}]
     assert "location='CIT'" in out
     assert "maintenance id(s): 1" in out
+    assert "(unconfirmed)" not in out  # the confirmed-till branch, not the fallback
 
 
 def test_set_maintenance_by_hosts():
-    r = make_router(
-        results={
-            "maintenance.get": [],
+    captured = []
+    handler = _sequenced_maintenance_get_router(
+        captured,
+        first_result=[],
+        second_result=[{"maintenanceid": "2", "active_till": "1786435200"}],
+        extra_results={
             "maintenance.create": {"maintenanceids": ["2"]},
             "host.get": [{"hostid": "11", "host": "cit-sw-to16"}, {"hostid": "12", "host": "cit-sw-ke22"}],
-        }
+        },
     )
-    with r:
+    with respx.mock(assert_all_called=False) as router:
+        router.post(ENDPOINT).mock(side_effect=handler)
         out = _call(server.set_maintenance)(
             "2026/08/10 11:00:00", "2026/08/10 13:00:00", "MW-", "desc", hosts="cit-sw-to16, cit-sw-ke22"
         )
-    call = next(x["payload"] for x in r.captured if x["payload"]["method"] == "maintenance.create")
-    assert "tags" not in call["params"]
-    assert sorted(call["params"]["hostids"]) == ["11", "12"]
-    assert "hosts=['cit-sw-to16', 'cit-sw-ke22']" in out
+    create_call = next(p for p in captured if p["method"] == "maintenance.create")
+    assert "tags" not in create_call["params"]
+    assert sorted(create_call["params"]["hostids"]) == ["11", "12"]
+    assert "hosts=cit-sw-to16, cit-sw-ke22" in out
+    assert "(unconfirmed)" not in out
 
 
 def test_set_maintenance_reports_actual_window_till_not_caller_input():
