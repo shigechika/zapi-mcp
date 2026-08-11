@@ -16,8 +16,10 @@
 | `get_hosts` | role / タグ / グループで絞ったホスト一覧（IP・タグつき） |
 | `get_host_items` | 1ホストの現在のアイテム値 |
 | `acknowledge_problem` | 問題を acknowledge してメッセージを追加（クローズはしない） |
+| `set_maintenance` | 冪等な Zabbix メンテナンスウィンドウを開く。`location` タグまたは個別ホスト名で対象指定 |
+| `get_maintenance_windows` | メンテナンスウィンドウの一覧（Active/Upcoming/Expired）― 他ツールのアラートを新規障害と誤認する前に突き合わせる |
 
-`acknowledge_problem` 以外はすべて読み取り専用です。
+`acknowledge_problem` と `set_maintenance` 以外はすべて読み取り専用です。
 
 ## 設計方針
 

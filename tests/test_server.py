@@ -394,6 +394,210 @@ def test_set_maintenance_reports_unresolved_host_as_zabbix_error():
     assert "cit-sw-typo" in out
 
 
+# ---- _window_state (pure logic) --------------------------------------------
+
+
+def test_window_state_active_one_time():
+    now = 1_000_000
+    w = {
+        "active_since": str(now - 100),
+        "active_till": str(now + 100),
+        "timeperiods": [{"timeperiod_type": "0", "start_date": str(now - 100), "period": "200"}],
+    }
+    assert server._window_state(w, now) == ("active", False)
+
+
+def test_window_state_upcoming_outer_frame():
+    now = 1_000_000
+    w = {"active_since": str(now + 100), "active_till": str(now + 200), "timeperiods": []}
+    assert server._window_state(w, now) == ("upcoming", False)
+
+
+def test_window_state_expired_outer_frame():
+    now = 1_000_000
+    w = {"active_since": str(now - 200), "active_till": str(now - 100), "timeperiods": []}
+    assert server._window_state(w, now) == ("expired", False)
+
+
+def test_window_state_one_time_not_yet_started_within_outer_frame():
+    # The outer frame (active_since/active_till) is already open, but the
+    # window's own one-time period hasn't started -- must not report active.
+    now = 1_000_000
+    w = {
+        "active_since": str(now - 100),
+        "active_till": str(now + 1000),
+        "timeperiods": [{"timeperiod_type": "0", "start_date": str(now + 500), "period": "100"}],
+    }
+    assert server._window_state(w, now) == ("upcoming", False)
+
+
+def test_window_state_one_time_already_ended_within_outer_frame():
+    now = 1_000_000
+    w = {
+        "active_since": str(now - 1000),
+        "active_till": str(now + 100),
+        "timeperiods": [{"timeperiod_type": "0", "start_date": str(now - 1000), "period": "500"}],
+    }
+    assert server._window_state(w, now) == ("expired", False)
+
+
+def test_window_state_recurring_period_uses_outer_frame():
+    now = 1_000_000
+    w = {
+        "active_since": str(now - 100),
+        "active_till": str(now + 100),
+        "timeperiods": [{"timeperiod_type": "2", "start_time": "0", "period": "3600"}],
+    }
+    assert server._window_state(w, now) == ("active", True)
+
+
+# ---- _window_hosts / _fmt_window_hosts (pure formatting) -------------------
+
+
+def test_window_hosts_reads_groups_or_hostgroups_key():
+    # get_maintenances() returns "groups" pre-6.4 and "hostgroups" >=6.4 for
+    # the selected host-group data -- a group-only window must not read blank
+    # just because the caller's Zabbix generation used the other key.
+    pre_64 = {"hosts": [], "groups": [{"groupid": "1", "name": "Group A"}]}
+    assert server._window_hosts(pre_64) == ["group:Group A"]
+    post_64 = {"hosts": [], "hostgroups": [{"groupid": "1", "name": "Group A"}]}
+    assert server._window_hosts(post_64) == ["group:Group A"]
+
+
+def test_fmt_window_hosts_truncates_and_pluralizes():
+    assert server._fmt_window_hosts([], 8) == "no hosts"
+    assert server._fmt_window_hosts(["a"], 8) == "1 host: a"
+    names = [f"h{i}" for i in range(10)]
+    assert server._fmt_window_hosts(names, 8) == "10 hosts: h0, h1, h2, h3, h4, h5, h6, h7, … and 2 more"
+
+
+# ---- get_maintenance_windows ------------------------------------------------
+
+
+def _one_time_window(*, maintenanceid, name, since_offset, till_offset, hosts=None, maintenance_type="0"):
+    """A maintenance.get row with one one-time period matching its outer frame
+    exactly -- the shape set_maintenance/set_maintenance_for_hosts always create."""
+    now = _frozen_now_ts()
+    since, till = now + since_offset, now + till_offset
+    return {
+        "maintenanceid": maintenanceid,
+        "name": name,
+        "active_since": str(since),
+        "active_till": str(till),
+        "maintenance_type": maintenance_type,
+        "description": "planned outage",
+        "hosts": hosts if hosts is not None else [{"hostid": "1", "host": "host-a", "name": "Host A"}],
+        "timeperiods": [{"timeperiod_type": "0", "start_date": str(since), "period": str(till - since)}],
+        "tags": [],
+    }
+
+
+@freeze_time(FROZEN_NOW)
+def test_get_maintenance_windows_shows_active_window():
+    w = _one_time_window(maintenanceid="1", name="MW-1", since_offset=-3600, till_offset=3600)
+    with make_router(results={"maintenance.get": [w]}):
+        out = _call(server.get_maintenance_windows)()
+    assert "Maintenance Windows (1 active, 0 upcoming):" in out
+    assert "## Active" in out
+    assert "MW-1" in out
+    assert "1 host: host-a" in out
+    assert "planned outage" in out
+
+
+@freeze_time(FROZEN_NOW)
+def test_get_maintenance_windows_shows_upcoming_window():
+    w = _one_time_window(maintenanceid="2", name="MW-2", since_offset=3600, till_offset=7200)
+    with make_router(results={"maintenance.get": [w]}):
+        out = _call(server.get_maintenance_windows)()
+    assert "Maintenance Windows (0 active, 1 upcoming):" in out
+    assert "## Upcoming" in out
+    assert "## Active" not in out
+
+
+@freeze_time(FROZEN_NOW)
+def test_get_maintenance_windows_excludes_expired_by_default():
+    w = _one_time_window(maintenanceid="3", name="MW-3", since_offset=-7200, till_offset=-3600)
+    with make_router(results={"maintenance.get": [w]}):
+        out = _call(server.get_maintenance_windows)()
+    assert out == "No maintenance windows."
+
+
+@freeze_time(FROZEN_NOW)
+def test_get_maintenance_windows_include_expired_shows_expired():
+    w = _one_time_window(maintenanceid="3", name="MW-3", since_offset=-7200, till_offset=-3600)
+    with make_router(results={"maintenance.get": [w]}):
+        out = _call(server.get_maintenance_windows)(include_expired=True)
+    assert "## Expired (1)" in out
+    assert "MW-3" in out
+
+
+@freeze_time(FROZEN_NOW)
+def test_get_maintenance_windows_recurring_window_labeled():
+    now = _frozen_now_ts()
+    w = {
+        "maintenanceid": "5",
+        "name": "MW-5",
+        "active_since": str(now - 3600),
+        "active_till": str(now + 3600 * 24 * 30),
+        "maintenance_type": "0",
+        "description": "",
+        "hosts": [{"hostid": "1", "host": "host-a", "name": "Host A"}],
+        "timeperiods": [{"timeperiod_type": "2", "start_time": "0", "period": "3600"}],
+        "tags": [],
+    }
+    with make_router(results={"maintenance.get": [w]}):
+        out = _call(server.get_maintenance_windows)()
+    assert "Maintenance Windows (1 active, 0 upcoming):" in out
+    assert "(recurring)" in out
+
+
+@freeze_time(FROZEN_NOW)
+def test_get_maintenance_windows_truncates_long_host_list():
+    hosts = [{"hostid": str(i), "host": f"host-{i}", "name": f"Host {i}"} for i in range(10)]
+    w = _one_time_window(maintenanceid="6", name="MW-6", since_offset=-60, till_offset=3600, hosts=hosts)
+    with make_router(results={"maintenance.get": [w]}):
+        out = _call(server.get_maintenance_windows)()
+    assert "… and 2 more" in out
+
+
+@freeze_time(FROZEN_NOW)
+def test_get_maintenance_windows_no_data_collection_label():
+    w = _one_time_window(maintenanceid="7", name="MW-7", since_offset=-60, till_offset=3600, maintenance_type="1")
+    with make_router(results={"maintenance.get": [w]}):
+        out = _call(server.get_maintenance_windows)()
+    assert "[no data collection]" in out
+
+
+def test_get_maintenance_windows_empty():
+    with make_router(results={"maintenance.get": []}):
+        out = _call(server.get_maintenance_windows)()
+    assert out == "No maintenance windows."
+
+
+def test_get_maintenance_windows_zabbix_error_resets_client():
+    def handler(request):
+        payload = json.loads(request.content)
+        m = payload["method"]
+        if m in ("apiinfo.version", "user.login"):
+            return httpx.Response(200, json={"result": "6.0.0" if m == "apiinfo.version" else "tok", "id": 1})
+        return httpx.Response(200, json={"error": {"message": "boom"}, "id": 1})
+
+    with respx.mock(assert_all_called=False) as router:
+        router.post(ENDPOINT).mock(side_effect=handler)
+        out = _call(server.get_maintenance_windows)()
+    assert "Zabbix error" in out
+    assert server._CLIENT is None
+
+
+def test_get_maintenance_windows_calls_maintenance_get_once():
+    w = _one_time_window(maintenanceid="1", name="MW-1", since_offset=-60, till_offset=60)
+    r = make_router(results={"maintenance.get": [w]})
+    with r:
+        _call(server.get_maintenance_windows)()
+    calls = [x for x in r.captured if x["payload"]["method"] == "maintenance.get"]
+    assert len(calls) == 1
+
+
 # ---- health_check ---------------------------------------------------------
 
 
@@ -710,6 +914,73 @@ def test_daily_brief_survives_count_failure(monkeypatch):
         out = _call(server.daily_brief)()
     assert "## Active Problems (1)" in out  # count failed -> fell back to the fetched floor
     assert "High CPU on core-rt1" in out  # section rendered, not replaced by an error
+
+
+# ---- daily_brief: In Maintenance -------------------------------------------
+
+
+@freeze_time(FROZEN_NOW)
+def test_daily_brief_shows_active_maintenance_section(monkeypatch):
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+    w = _one_time_window(maintenanceid="1", name="MW-1", since_offset=-3600, till_offset=3600)
+    with make_router(results={"problem.get": [], "maintenance.get": [w]}):
+        out = _call(server.daily_brief)()
+    assert "## In Maintenance (1 window)" in out
+    assert "MW-1" in out
+    # Section sits between Active Problems and the category area, not before/after both.
+    assert out.index("## Active Problems") < out.index("## In Maintenance") < out.index("No categories configured")
+
+
+@freeze_time(FROZEN_NOW)
+def test_daily_brief_omits_maintenance_section_for_future_day_upcoming(monkeypatch):
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+    # Starts tomorrow (frozen "now" is 2026-06-01 12:00), not today.
+    w = _one_time_window(maintenanceid="2", name="MW-2", since_offset=3600 * 30, till_offset=3600 * 32)
+    with make_router(results={"problem.get": [], "maintenance.get": [w]}):
+        out = _call(server.daily_brief)()
+    assert "## In Maintenance" not in out
+
+
+@freeze_time(FROZEN_NOW)
+def test_daily_brief_shows_todays_upcoming_maintenance(monkeypatch):
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+    # Starts later today (frozen "now" is 12:00; +3h keeps the same calendar day).
+    w = _one_time_window(maintenanceid="3", name="MW-3", since_offset=3 * 3600, till_offset=5 * 3600)
+    with make_router(results={"problem.get": [], "maintenance.get": [w]}):
+        out = _call(server.daily_brief)()
+    assert "## In Maintenance (1 window)" in out
+    assert "Starting today: MW-3" in out
+
+
+@freeze_time(FROZEN_NOW)
+def test_daily_brief_omits_maintenance_section_when_none_active_or_upcoming_today(monkeypatch):
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+    w = _one_time_window(maintenanceid="4", name="MW-4", since_offset=-7200, till_offset=-3600)  # expired
+    with make_router(results={"problem.get": [], "maintenance.get": [w]}):
+        out = _call(server.daily_brief)()
+    assert "## In Maintenance" not in out
+
+
+def test_daily_brief_survives_maintenance_fetch_failure(monkeypatch):
+    """A maintenance.get failure must not abort the rest of the brief."""
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+
+    def handler(request):
+        payload = json.loads(request.content)
+        m = payload["method"]
+        if m in ("apiinfo.version", "user.login"):
+            return httpx.Response(200, json={"result": "6.0.0" if m == "apiinfo.version" else "tok", "id": 1})
+        if m == "maintenance.get":
+            return httpx.Response(200, json={"error": {"message": "boom"}, "id": 1})
+        return httpx.Response(200, json={"result": [], "id": 1})
+
+    with respx.mock(assert_all_called=False) as router:
+        router.post(ENDPOINT).mock(side_effect=handler)
+        text, had_error = server._daily_brief_text()
+    assert "## In Maintenance\nError: maintenance.get failed:" in text
+    assert "boom" in text
+    assert "No categories configured" in text  # brief continues past the failure
+    assert had_error is True
 
 
 # ---- helpers --------------------------------------------------------------

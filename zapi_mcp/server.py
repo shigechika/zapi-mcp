@@ -413,6 +413,30 @@ def _daily_brief_text() -> tuple[str, bool]:
         lines.append(f"\n## Active Problems\nError: {e}")
         return "\n".join(lines), True
 
+    # In-maintenance hosts: a planned outage must not be misread as a new
+    # incident by whatever else is watching these hosts (this server has no
+    # visibility into other tools' findings, so it can only publish what to
+    # check against). Independent try -- unlike Active Problems above, a
+    # failure here doesn't abort the rest of the brief.
+    try:
+        shown: list[tuple[dict, bool]] = []
+        for m in client.get_maintenances():
+            state, _ = _window_state(m, now_ts)
+            if state == "active":
+                shown.append((m, False))
+            elif state == "upcoming":
+                since = _epoch(m.get("active_since"))
+                if since is not None and datetime.fromtimestamp(since).astimezone().date() == now_dt.date():
+                    shown.append((m, True))
+        if shown:
+            shown.sort(key=lambda pair: pair[0].get("active_since", ""))
+            lines.append(f"\n## In Maintenance ({len(shown)} window{'s' if len(shown) != 1 else ''})")
+            for m, is_upcoming in shown:
+                lines.append(_window_brief_line(m, upcoming=is_upcoming))
+    except ZapiError as e:
+        lines.append(f"\n## In Maintenance\nError: {e}")
+        had_error = True
+
     # Per-category sections
     categories, categories_error = _load_categories_safe()
     if categories_error:
@@ -440,15 +464,23 @@ def _daily_brief_text() -> tuple[str, bool]:
 def daily_brief() -> str:
     """Morning patrol summary.
 
-    Reports active problems (Warning and above), then one section per category
-    configured via ZABBIX_CATEGORIES_INI (e.g. DHCP pool usage, SNAT session
-    usage, core-network problems). Item-based categories show current values
-    sorted high-to-low; problem-based categories list active problems.
+    Reports active problems (Warning and above), hosts currently in
+    maintenance, then one section per category configured via
+    ZABBIX_CATEGORIES_INI (e.g. DHCP pool usage, SNAT session usage,
+    core-network problems). Item-based categories show current values sorted
+    high-to-low; problem-based categories list active problems.
 
     Problems are listed newest-first with their age; those older than the recent
     window (ZABBIX_BRIEF_RECENT_HOURS, default 24h) are folded to a count so a
     long-standing backlog of un-recovered fossils doesn't bury today's events.
     Section headers show the true total ('showing N of TOTAL' when capped).
+
+    The "## In Maintenance" section lists windows that are active now, plus
+    windows starting later today -- cross-check these hosts before treating
+    another tool's alert about them as a new incident. No section means no
+    host is currently (or about to be, today) under a registered maintenance
+    window; see get_maintenance_windows for the full picture including
+    tomorrow-or-later and expired windows.
     """
     text, _ = _daily_brief_text()
     return text
@@ -718,3 +750,188 @@ def set_maintenance(
         f"Maintenance window active for {target} from {since} to {actual_till} "
         f"(maintenance id(s): {', '.join(maintenance_ids)})."
     )
+
+
+# ------------------------------------------------------------------
+# Maintenance (read)
+# ------------------------------------------------------------------
+
+# How many hosts to list per window before folding the rest to "… and N more".
+MAINT_HOST_DISPLAY_LIMIT = 8
+MAINT_BRIEF_HOST_DISPLAY_LIMIT = 6
+
+# Zabbix timeperiod_type: "0" is one-time; "2"/"3"/"4" are daily/weekly/monthly.
+_ONE_TIME_PERIOD = "0"
+
+
+def _epoch(value: object) -> int | None:
+    """Parse a Zabbix epoch-as-string field; None when missing/unparseable."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _window_state(m: dict, now_ts: int) -> tuple[str, bool]:
+    """Classify a maintenance window as 'active', 'upcoming', or 'expired'.
+
+    A one-time period (timeperiod_type '0') is evaluated precisely against its
+    own [start_date, start_date + period] span, clipped to the outer
+    [active_since, active_till] frame -- this is exact for windows created by
+    set_maintenance/set_maintenance_for_hosts, which always emit a single
+    one-time period matching the outer frame exactly. A window with any
+    recurring period (daily/weekly/monthly -- only possible via the Zabbix UI
+    or another API caller, never via set_maintenance) can't be evaluated
+    without a full recurrence engine, so it falls back to the outer frame and
+    is flagged `recurring=True` so callers can label it honestly instead of
+    claiming precision the classification doesn't have.
+
+    Returns (state, recurring).
+    """
+    since = _epoch(m.get("active_since"))
+    till = _epoch(m.get("active_till"))
+    if since is None or till is None:
+        return "expired", False
+    if now_ts < since:
+        return "upcoming", False
+    if now_ts > till:
+        return "expired", False
+
+    periods = m.get("timeperiods") or []
+    if any(p.get("timeperiod_type") != _ONE_TIME_PERIOD for p in periods):
+        return "active", True
+    if not periods:
+        # A window inside its own active frame with zero time periods isn't a
+        # shape Zabbix normally produces; degrade to the outer frame rather
+        # than crash on it.
+        return "active", False
+
+    spans = []
+    for p in periods:
+        start = _epoch(p.get("start_date"))
+        length = _epoch(p.get("period"))
+        if start is None or length is None:
+            continue
+        spans.append((max(start, since), min(start + length, till)))
+    if not spans:
+        return "active", False
+    if any(start <= now_ts <= end for start, end in spans):
+        return "active", False
+    if all(now_ts < start for start, _ in spans):
+        return "upcoming", False
+    return "expired", False
+
+
+def _window_hosts(m: dict) -> list[str]:
+    """Host and host-group labels for a window (group-only windows aren't blank).
+
+    ``get_maintenances()`` returns ``"groups"`` on Zabbix < 6.4 and
+    ``"hostgroups"`` on >= 6.4 for the selected host-group data; check both.
+    """
+    names = [h.get("host", "?") for h in (m.get("hosts") or [])]
+    groups = m.get("hostgroups") if m.get("hostgroups") is not None else m.get("groups")
+    names.extend(f"group:{g.get('name', '?')}" for g in (groups or []))
+    return names
+
+
+def _fmt_window_hosts(names: list[str], limit: int) -> str:
+    """'N hosts: a, b, … and K more', truncated to `limit` names shown."""
+    if not names:
+        return "no hosts"
+    label = "host" if len(names) == 1 else "hosts"
+    shown = ", ".join(names[:limit])
+    if len(names) > limit:
+        shown += f", … and {len(names) - limit} more"
+    return f"{len(names)} {label}: {shown}"
+
+
+def _window_header(m: dict) -> str:
+    """'<name>  <since> → <till>' plus '(recurring)' / '[no data collection]' flags."""
+    name = m.get("name", "?")
+    since = _fmt_time(m.get("active_since"))
+    till = _fmt_time(m.get("active_till"))
+    header = f"{name}  {since} → {till}"
+    periods = m.get("timeperiods") or []
+    if any(p.get("timeperiod_type") != _ONE_TIME_PERIOD for p in periods):
+        header += "  (recurring)"
+    if str(m.get("maintenance_type", "0")) == "1":
+        header += "  [no data collection]"
+    return header
+
+
+def _window_block(m: dict, host_limit: int) -> list[str]:
+    """Multi-line display block for one window (get_maintenance_windows)."""
+    block = [f"- {_window_header(m)}"]
+    description = (m.get("description") or "").strip()
+    if description:
+        block.append(f"  {description}")
+    block.append(f"  {_fmt_window_hosts(_window_hosts(m), host_limit)}")
+    return block
+
+
+def _window_brief_line(m: dict, *, upcoming: bool) -> str:
+    """Single-line display for one window (daily_brief's In Maintenance section)."""
+    name = m.get("name", "?")
+    till = _fmt_time(m.get("active_till"))
+    hosts_str = _fmt_window_hosts(_window_hosts(m), MAINT_BRIEF_HOST_DISPLAY_LIMIT)
+    if upcoming:
+        since = _fmt_time(m.get("active_since"))
+        return f"- Starting today: {name}  {since} → {till}  ({hosts_str})"
+    return f"- {name}  until {till}  ({hosts_str})"
+
+
+@mcp.tool()
+def get_maintenance_windows(include_expired: bool = False) -> str:
+    """List Zabbix maintenance windows -- the read counterpart to set_maintenance.
+
+    Use this to cross-check anomalies reported by OTHER tools (e.g. device
+    unreachability, AP-offline reports) before treating them as new
+    incidents: a host in an Active window is one Zabbix is currently
+    suppressing new problem notifications for, because someone (or
+    set_maintenance) registered a planned outage covering it.
+
+    Windows are grouped Active / Upcoming (and Expired when requested).
+    "Active" means the current time falls inside the window's own time
+    period, not just its outer active_since/active_till frame -- exact for a
+    one-time window (the kind set_maintenance/set_maintenance_for_hosts
+    create). A window with a recurring time period (set up outside this
+    server) is instead evaluated against its outer frame only and labeled
+    "(recurring)", since precise recurrence evaluation isn't implemented.
+
+    Times are the MCP server process's local timezone (same caveat as
+    set_maintenance's since/till).
+
+    Args:
+        include_expired: Also list windows whose active_till has passed
+            (default False -- set_maintenance never deletes windows, so
+            expired ones accumulate over time and are noise by default).
+    """
+    try:
+        client = _client()
+        windows = client.get_maintenances()
+    except KeyError as e:
+        return f"Missing environment variable: {e}"
+    except ZapiError as e:
+        reset_client()
+        return f"Zabbix error: {e}"
+
+    now_ts = int(datetime.now().astimezone().timestamp())
+    buckets: dict[str, list[dict]] = {"active": [], "upcoming": [], "expired": []}
+    for m in windows:
+        state, _ = _window_state(m, now_ts)
+        buckets[state].append(m)
+
+    if not buckets["active"] and not buckets["upcoming"] and not (include_expired and buckets["expired"]):
+        return "No maintenance windows."
+
+    lines = [f"Maintenance Windows ({len(buckets['active'])} active, {len(buckets['upcoming'])} upcoming):"]
+    for label, key in (("Active", "active"), ("Upcoming", "upcoming")):
+        if buckets[key]:
+            lines.append(f"\n## {label}")
+            for m in sorted(buckets[key], key=lambda m: m.get("active_since", "")):
+                lines.extend(_window_block(m, MAINT_HOST_DISPLAY_LIMIT))
+    if include_expired and buckets["expired"]:
+        lines.append(f"\n## Expired ({len(buckets['expired'])})")
+        for m in sorted(buckets["expired"], key=lambda m: m.get("active_since", "")):
+            lines.extend(_window_block(m, MAINT_HOST_DISPLAY_LIMIT))
+    return "\n".join(lines)

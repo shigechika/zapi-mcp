@@ -45,6 +45,9 @@
 - Unavailable by ICMP ping  eventid=18813696  (2026-08-06 07:12, 2h ago)
 - … and 21 older (stale; oldest 2024-10-04 10:39)
 
+## In Maintenance (1 window)
+- Legal-inspection-2608110900h  until 2026-08-11 17:00:00  (12 hosts: sw-01, sw-02, … and 10 more)
+
 ## DHCP Pool Usage (2 hosts)
 - POOL-A: 100.0 %  ⚠️  (2026-08-06 09:00:00)
 - POOL-B: 82.3 %  (2026-08-06 09:00:00)
@@ -53,8 +56,18 @@
 問題は Warning 以上を新しい順に、`eventid`・発生時刻・経過時間つきで並べます。
 深刻度の見出しには件数と、そのうち直近何件かが入ります。`ZABBIX_BRIEF_RECENT_HOURS`
 より古いものは `… and N older` の行に畳まれます。各行に深刻度名は繰り返しません
-（見出しが既に示しているため）。続いて、設定した `[section]` ごとにカテゴリの
-セクションが並び、閾値を超えた値には `⚠️` が付きます。
+（見出しが既に示しているため）。
+
+Active Problems の直後にある `## In Maintenance` は、現在有効なメンテナンス
+ウィンドウと、本日これから始まるウィンドウの対象ホストを一覧します。同じ
+ホストについて他ツールが検知した異常を新規障害と誤認する前に、ここと突き
+合わせてください。該当が無ければセクション自体を**出しません** ―
+セクションが無いブリーフは、現在（または本日中に）登録済みメンテナンス
+ウィンドウの対象になっているホストが無いことを意味します。もっと先の窓や
+期限切れの窓を見るには、後述の `get_maintenance_windows()` を呼びます。
+
+続いて、設定した `[section]` ごとにカテゴリのセクションが並び、閾値を超えた
+値には `⚠️` が付きます。
 
 ### `get_problems(min_severity=2, tag_name=None, tag_value=None, limit=50)`
 
@@ -76,10 +89,39 @@
 
 ### `acknowledge_problem(event_ids, message)`
 
-**唯一の書き込みツールです。** カンマ区切りのイベント ID を acknowledge し、
-メッセージを添付します。問題のクローズはしません。acknowledge はその Zabbix の
-全オペレーターに見え、黙って取り消すことができません。だからライブスモークテストは
-このツールを名指しでスキップし、そのスキップをユニットテストが強制しています。
+**書き込みツールです**（`set_maintenance` も同様）。カンマ区切りのイベント ID
+を acknowledge し、メッセージを添付します。問題のクローズはしません。
+acknowledge はその Zabbix の全オペレーターに見え、黙って取り消すことができ
+ません。だからライブスモークテストはこのツールを名指しでスキップし、その
+スキップをユニットテストが強制しています。
+
+### `get_maintenance_windows(include_expired=False)`
+
+`set_maintenance` の読み取り版です。Zabbix のメンテナンスウィンドウを
+Active / Upcoming（`include_expired=True` なら Expired も）に分けて一覧します:
+
+```text
+Maintenance Windows (1 active, 1 upcoming):
+
+## Active
+- Legal-inspection-2608110900h  2026-08-11 09:00:00 → 2026-08-11 17:00:00
+  Annual legal inspection
+  12 hosts: sw-01, sw-02, rt-01, rt-02, ap-01, ap-02, fw-01, fw-02, … and 4 more
+
+## Upcoming
+- UPS-check-2608150900h  2026-08-15 09:00:00 → 2026-08-15 12:00:00  [no data collection]
+  UPS battery replacement
+  2 hosts: b-sw-01, b-sw-02
+```
+
+「Active」は、ウィンドウの外枠（`active_since`/`active_till`）だけでなく
+その中の時間帯（time period）自体に現在時刻が入っていることを意味します ―
+`set_maintenance`/`set_maintenance_for_hosts` が作る one-time 窓では正確に
+判定できます。繰り返し設定（Zabbix UI 等、このサーバの外で作られたもの）の
+窓は外枠だけで判定し `(recurring)` と表示します。`[no data collection]` は
+アラート抑止だけでなくデータ収集自体も止める窓に付きます。`set_maintenance`
+は窓を削除しない設計のため期限切れの窓は増え続けます ― 既定では除外し、
+`include_expired=True` で表示します。0件時: `No maintenance windows.`
 
 ## CLI
 
