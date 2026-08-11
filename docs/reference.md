@@ -46,7 +46,7 @@ The morning report. Structure:
 - … and 21 older (stale; oldest 2024-10-04 10:39)
 
 ## In Maintenance (1 window)
-- Legal-inspection-2608110900h  until 2026-08-11 17:00:00  (12 hosts: sw-01, sw-02, … and 10 more)
+- Legal-inspection-2608110900h  until 2026-08-11 17:00:00  (12 hosts: sw-01, sw-02, sw-03, sw-04, sw-05, sw-06, … and 6 more)
 
 ## DHCP Pool Usage (2 hosts)
 - POOL-A: 100.0 %  ⚠️  (2026-08-06 09:00:00)

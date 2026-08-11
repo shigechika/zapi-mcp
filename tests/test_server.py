@@ -419,6 +419,16 @@ def test_window_state_expired_outer_frame():
     assert server._window_state(w, now) == ("expired", False)
 
 
+def test_window_state_malformed_till_with_valid_since_is_not_silently_expired():
+    # A corrupted/unparseable active_till on an otherwise-real, ongoing
+    # window must not make it vanish from the default (non-expired) view --
+    # that would defeat the point of surfacing maintenance context at all
+    # (regression found by /code-review on PR#63).
+    now = 1_000_000
+    w = {"active_since": str(now - 200), "active_till": "not-a-number", "timeperiods": []}
+    assert server._window_state(w, now) == ("active", False)
+
+
 def test_window_state_one_time_not_yet_started_within_outer_frame():
     # The outer frame (active_since/active_till) is already open, but the
     # window's own one-time period hasn't started -- must not report active.
@@ -488,6 +498,24 @@ def test_window_upcoming_start_before_outer_frame_opens():
     now = 1_000_000
     w = {"active_since": str(now + 500), "active_till": str(now + 1500), "timeperiods": []}
     assert server._window_upcoming_start(w, now) == now + 500
+
+
+def test_window_upcoming_start_before_outer_frame_opens_but_period_starts_later():
+    # The outer frame opens later today, but the window's actual one-time
+    # period doesn't start until 9 days after that -- the effective start
+    # must be the period's own start, not active_since (regression: the
+    # earlier fix only handled "frame already open, period not yet started";
+    # this is the "frame not open yet either" half of the same bug, found by
+    # /code-review on PR#63 after the R1F2 ledger entry stayed open).
+    now = 1_000_000
+    since = now + 500
+    period_start = since + 9 * 86_400
+    w = {
+        "active_since": str(since),
+        "active_till": str(period_start + 100_000),
+        "timeperiods": [{"timeperiod_type": "0", "start_date": str(period_start), "period": "600"}],
+    }
+    assert server._window_upcoming_start(w, now) == period_start
 
 
 def test_window_upcoming_start_uses_period_start_not_active_since():
@@ -1061,6 +1089,30 @@ def test_daily_brief_shows_active_maintenance_section(monkeypatch):
 
 
 @freeze_time(FROZEN_NOW)
+def test_daily_brief_marks_recurring_window_in_maintenance_line():
+    # get_maintenance_windows shows "(recurring)" for a non-one-time period;
+    # the brief's In-Maintenance line must show the same caveat, not present
+    # an unqualified line that reads as an exact, precisely-evaluated window
+    # (regression found by /code-review on PR#63).
+    now = _frozen_now_ts()
+    w = {
+        "maintenanceid": "20",
+        "name": "MW-20",
+        "active_since": str(now - 3600),
+        "active_till": str(now + 3600 * 24 * 30),
+        "maintenance_type": "0",
+        "description": "",
+        "hosts": [{"hostid": "1", "host": "host-a", "name": "Host A"}],
+        "timeperiods": [{"timeperiod_type": "2", "start_time": "0", "period": "3600"}],
+        "tags": [],
+    }
+    with make_router(results={"problem.get": [], "maintenance.get": [w]}):
+        out = _call(server.daily_brief)()
+    assert "## In Maintenance (1 window)" in out
+    assert "MW-20 (recurring)" in out
+
+
+@freeze_time(FROZEN_NOW)
 def test_daily_brief_omits_maintenance_section_for_future_day_upcoming(monkeypatch):
     monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
     # Starts tomorrow (frozen "now" is 2026-06-01 12:00), not today.
@@ -1180,6 +1232,10 @@ def test_daily_brief_survives_maintenance_fetch_failure(monkeypatch):
     assert "boom" in text
     assert "No categories configured" in text  # brief continues past the failure
     assert had_error is True
+    # A stale/poisoned session must not be reused by the category loop that
+    # follows (regression: the original handler forgot reset_client() here,
+    # unlike every other except-ZapiError branch in this module).
+    assert server._CLIENT is None
 
 
 # ---- helpers --------------------------------------------------------------

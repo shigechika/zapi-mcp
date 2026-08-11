@@ -444,6 +444,9 @@ def _daily_brief_text() -> tuple[str, bool]:
             for m, start in shown:
                 lines.append(_window_brief_line(m, upcoming_start=start))
     except ZapiError as e:
+        # Same reset-on-failure as the Active Problems handler above: a
+        # stale/dead session must not be reused by the category loop below.
+        reset_client()
         lines.append(f"\n## In Maintenance\nError: {e}")
         had_error = True
 
@@ -796,8 +799,22 @@ def _epoch_to_local_date(epoch: int):
         return None
 
 
-def _one_time_spans(periods: list[dict], since: int, till: int) -> list[tuple[int, int]]:
+def _is_recurring(periods: list[dict]) -> bool:
+    """True when any period is daily/weekly/monthly rather than one-time.
+
+    Single source of truth for this predicate -- _window_state,
+    _window_upcoming_start, and the display helpers must all agree on which
+    windows get the "(recurring)" caveat and the outer-frame fallback.
+    """
+    return any(p.get("timeperiod_type") != _ONE_TIME_PERIOD for p in periods)
+
+
+def _one_time_spans(periods: list[dict], since: int, till: int | None) -> list[tuple[int, int]]:
     """[start, end] spans for one-time periods, clipped to the outer frame.
+
+    ``till`` may be None (an unparseable/missing active_till on an otherwise
+    valid window -- see _window_state) -- a period's end is then left
+    unclipped rather than the window being silently discarded upstream.
 
     Shared by _window_state (classification) and _window_upcoming_start (the
     brief's "does this start today" check) so the two can never disagree
@@ -809,7 +826,10 @@ def _one_time_spans(periods: list[dict], since: int, till: int) -> list[tuple[in
         length = _epoch(p.get("period"))
         if start is None or length is None:
             continue
-        spans.append((max(start, since), min(start + length, till)))
+        end = start + length
+        if till is not None:
+            end = min(end, till)
+        spans.append((max(start, since), end))
     return spans
 
 
@@ -830,19 +850,23 @@ def _window_state(m: dict, now_ts: int) -> tuple[str, bool]:
     frame and is flagged `recurring=True` so callers can label it honestly
     instead of claiming precision the classification doesn't have.
 
+    An unparseable active_till (with a valid active_since) does NOT force
+    'expired': a corrupted end date shouldn't make an otherwise-real window
+    vanish from the default view, defeating the point of surfacing it at all.
+
     Returns (state, recurring).
     """
     since = _epoch(m.get("active_since"))
-    till = _epoch(m.get("active_till"))
-    if since is None or till is None:
+    if since is None:
         return "expired", False
     if now_ts < since:
         return "upcoming", False
-    if now_ts > till:
+    till = _epoch(m.get("active_till"))
+    if till is not None and now_ts > till:
         return "expired", False
 
     periods = m.get("timeperiods") or []
-    if any(p.get("timeperiod_type") != _ONE_TIME_PERIOD for p in periods):
+    if _is_recurring(periods):
         return "active", True
     if not periods:
         # A window inside its own active frame with zero time periods isn't a
@@ -863,24 +887,23 @@ def _window_state(m: dict, now_ts: int) -> tuple[str, bool]:
 def _window_upcoming_start(m: dict, now_ts: int) -> int | None:
     """Epoch a currently-'upcoming' window will actually start being active.
 
-    NOT the same as active_since: a one-time period can start later than the
-    outer frame opens (e.g. the frame opened yesterday but the period itself
-    starts later today), and _window_state already treats that as 'upcoming'
-    -- this returns the moment that matters for a "does this start today"
-    check. None only when active_since itself is unparseable (the window
-    would already have been classified 'expired' by _window_state, so this
-    should not be called in that case).
+    NOT active_since: a one-time period can start later than the outer frame
+    itself opens -- true whether "now" is before active_since (the frame
+    hasn't opened yet) or after it (the frame is open but the period hasn't
+    started, e.g. a gap between two one-time periods). Both cases resolve
+    the same way here: the earliest one-time period start still ahead of
+    "now", clipped to the outer frame like _window_state's own spans. None
+    only when active_since itself is unparseable (the window would already
+    have been classified 'expired' by _window_state, so this should not be
+    called in that case).
     """
     since = _epoch(m.get("active_since"))
-    till = _epoch(m.get("active_till"))
     if since is None:
         return None
-    if now_ts < since or till is None:
-        # Outer frame hasn't opened yet -- nothing can start earlier than that.
-        return since
     periods = m.get("timeperiods") or []
-    if any(p.get("timeperiod_type") != _ONE_TIME_PERIOD for p in periods) or not periods:
+    if _is_recurring(periods) or not periods:
         return since
+    till = _epoch(m.get("active_till"))
     future_starts = [start for start, _ in _one_time_spans(periods, since, till) if now_ts < start]
     return min(future_starts) if future_starts else since
 
@@ -931,8 +954,7 @@ def _window_header(m: dict) -> str:
     since = _fmt_time(m.get("active_since"))
     till = _fmt_time(m.get("active_till"))
     header = f"{name}  {since} → {till}"
-    periods = m.get("timeperiods") or []
-    if any(p.get("timeperiod_type") != _ONE_TIME_PERIOD for p in periods):
+    if _is_recurring(m.get("timeperiods") or []):
         header += "  (recurring)"
     if str(m.get("maintenance_type", "0")) == "1":
         header += "  [no data collection]"
@@ -959,6 +981,8 @@ def _window_brief_line(m: dict, *, upcoming_start: int | None) -> str:
     which can predate the moment the window itself actually starts.
     """
     name = m.get("name", "?")
+    if _is_recurring(m.get("timeperiods") or []):
+        name += " (recurring)"
     till = _fmt_time(m.get("active_till"))
     hosts, groups = _window_hosts(m)
     hosts_str = _fmt_window_hosts(hosts, groups, MAINT_BRIEF_HOST_DISPLAY_LIMIT)
