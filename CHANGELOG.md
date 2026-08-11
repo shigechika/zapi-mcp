@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/shigechika/zapi-mcp/compare/v0.8.0...v0.9.0) (2026-08-11)
+
+
+### Features
+
+* add get_maintenance_windows tool and In Maintenance brief section ([#63](https://github.com/shigechika/zapi-mcp/issues/63)) ([628df0b](https://github.com/shigechika/zapi-mcp/commit/628df0b1aad8089d35163b86c26a71279be32699))
+
 ## [0.8.0](https://github.com/shigechika/zapi-mcp/compare/v0.7.0...v0.8.0) (2026-08-10)
 
 
