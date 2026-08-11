@@ -517,6 +517,12 @@ def test_window_upcoming_start_picks_earliest_future_period():
     assert server._window_upcoming_start(w, now) == now + 3600
 
 
+def test_epoch_to_local_date_handles_out_of_range():
+    # A timestamp large enough to overflow datetime.fromtimestamp() must
+    # degrade to None, not raise (regression for ai-review R2F1 on PR#63).
+    assert server._epoch_to_local_date(99999999999999) is None
+
+
 # ---- _window_hosts / _fmt_window_hosts (pure formatting) -------------------
 
 
@@ -1101,6 +1107,51 @@ def test_daily_brief_uses_period_start_not_outer_frame_for_todays_check(monkeypa
 
 
 @freeze_time(FROZEN_NOW)
+def test_daily_brief_does_not_label_tomorrows_period_as_starting_today(monkeypatch):
+    # Mirror of the case above: the outer frame opens today, but the window's
+    # own one-time period doesn't start until tomorrow -- must NOT be shown
+    # (a naive active_since check would falsely label this "starting today").
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+    now = _frozen_now_ts()
+    w = {
+        "maintenanceid": "11",
+        "name": "MW-11",
+        "active_since": str(now - 3600),  # outer frame opened today
+        "active_till": str(now + 100_000),
+        "maintenance_type": "0",
+        "description": "",
+        "hosts": [{"hostid": "1", "host": "host-a", "name": "Host A"}],
+        "timeperiods": [{"timeperiod_type": "0", "start_date": str(now + 30 * 3600), "period": "600"}],  # tomorrow
+        "tags": [],
+    }
+    with make_router(results={"problem.get": [], "maintenance.get": [w]}):
+        out = _call(server.daily_brief)()
+    assert "## In Maintenance" not in out
+
+
+def test_daily_brief_survives_out_of_range_period_start(monkeypatch):
+    # An absurd/corrupted start_date must degrade this one window's "starts
+    # today" check, not crash datetime.fromtimestamp() and take down the
+    # entire brief (regression for ai-review R2F1 on PR#63).
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+    w = {
+        "maintenanceid": "12",
+        "name": "MW-12",
+        "active_since": "1000",
+        "active_till": "99999999999999",
+        "maintenance_type": "0",
+        "description": "",
+        "hosts": [{"hostid": "1", "host": "host-a", "name": "Host A"}],
+        "timeperiods": [{"timeperiod_type": "0", "start_date": "99999999999999", "period": "600"}],
+        "tags": [],
+    }
+    with make_router(results={"problem.get": [], "maintenance.get": [w]}):
+        out = _call(server.daily_brief)()  # must not raise
+    assert "# Daily Brief" in out
+    assert "## In Maintenance" not in out  # malformed window can't be confirmed as "today"
+
+
+@freeze_time(FROZEN_NOW)
 def test_daily_brief_omits_maintenance_section_when_none_active_or_upcoming_today(monkeypatch):
     monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
     w = _one_time_window(maintenanceid="4", name="MW-4", since_offset=-7200, till_offset=-3600)  # expired
@@ -1188,6 +1239,14 @@ def test_fmt_time_handles_bad_input():
     assert server._fmt_time(0) == "—"
     assert server._fmt_time("0") == "—"  # Zabbix sends string "0" for "never"
     assert server._fmt_time("not-a-number") == "—"
+
+
+def test_fmt_time_handles_out_of_range_epoch():
+    # datetime.fromtimestamp() raises ValueError (not just OverflowError/
+    # OSError) for a timestamp whose year is outside 1..9999 -- get_maintenances()
+    # can surface one of these from a malformed maintenance window (ai-review
+    # R2F1 on PR#63 found this same gap in the sibling _epoch_to_local_date).
+    assert server._fmt_time("99999999999999") == "99999999999999"
 
 
 def test_severity_name():

@@ -75,7 +75,12 @@ def _fmt_time(epoch: int | str | None) -> str:
         return "—"
     try:
         return datetime.fromtimestamp(e).astimezone().strftime("%Y-%m-%d %H:%M:%S")
-    except (OverflowError, OSError):
+    except (OverflowError, OSError, ValueError):
+        # ValueError: datetime.fromtimestamp() raises this (not just
+        # OverflowError/OSError) for a timestamp whose year falls outside
+        # 1..9999 -- observed in practice via get_maintenance_windows, whose
+        # active_since/active_till come from Zabbix's maintenance.get and
+        # aren't otherwise range-checked.
         return str(epoch)
 
 
@@ -430,7 +435,8 @@ def _daily_brief_text() -> tuple[str, bool]:
                 shown.append((m, None))
             elif state == "upcoming":
                 start = _window_upcoming_start(m, now_ts)
-                if start is not None and datetime.fromtimestamp(start).astimezone().date() == now_dt.date():
+                start_date = _epoch_to_local_date(start) if start is not None else None
+                if start_date is not None and start_date == now_dt.date():
                     shown.append((m, start))
         if shown:
             shown.sort(key=lambda pair: pair[1] if pair[1] is not None else (_epoch(pair[0].get("active_since")) or 0))
@@ -773,6 +779,20 @@ def _epoch(value: object) -> int | None:
     try:
         return int(value)
     except (TypeError, ValueError):
+        return None
+
+
+def _epoch_to_local_date(epoch: int):
+    """The local calendar date for an epoch, or None if out of platform range.
+
+    A malformed/absurd start_date (e.g. from a hand-crafted or corrupted
+    maintenance window) must degrade this one window's "starts today" check,
+    not crash datetime.fromtimestamp() and take down the whole brief -- same
+    defensive scope as _fmt_time's (OverflowError, OSError, ValueError) catch.
+    """
+    try:
+        return datetime.fromtimestamp(epoch).astimezone().date()
+    except (OverflowError, OSError, ValueError):
         return None
 
 
