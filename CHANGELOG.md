@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/shigechika/zapi-mcp/compare/v0.9.0...v0.9.1) (2026-08-11)
+
+
+### Bug Fixes
+
+* bump cryptography to 50.0.0 (GHSA PKCS[#7](https://github.com/shigechika/zapi-mcp/issues/7) Bleichenbacher oracle) ([#68](https://github.com/shigechika/zapi-mcp/issues/68)) ([5e0a8da](https://github.com/shigechika/zapi-mcp/commit/5e0a8dad8435618611318f1f320eb7a07acd4e16))
+
 ## [0.9.0](https://github.com/shigechika/zapi-mcp/compare/v0.8.0...v0.9.0) (2026-08-11)
 
 
