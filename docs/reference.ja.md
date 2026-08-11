@@ -89,11 +89,43 @@ Active Problems の直後にある `## In Maintenance` は、現在有効なメ�
 
 ### `acknowledge_problem(event_ids, message)`
 
-**書き込みツールです**（`set_maintenance` も同様）。カンマ区切りのイベント ID
-を acknowledge し、メッセージを添付します。問題のクローズはしません。
-acknowledge はその Zabbix の全オペレーターに見え、黙って取り消すことができ
-ません。だからライブスモークテストはこのツールを名指しでスキップし、その
-スキップをユニットテストが強制しています。
+**書き込みツールの一つです**（もう一つは `set_maintenance`）。カンマ区切りの
+イベント ID を acknowledge し、メッセージを添付します。問題のクローズはしま
+せん。acknowledge はその Zabbix の全オペレーターに見え、黙って取り消すこと
+ができません。だからライブスモークテストはこのツールを名指しでスキップし、
+そのスキップをユニットテストが強制しています。
+
+### `set_maintenance(since, till, name, description, location=None, hosts=None)`
+
+**もう一つの書き込みツールです。** 冪等な Zabbix メンテナンスウィンドウを
+開き、対象ホストの新規問題通知をウィンドウ中抑止します — 既存の問題を確認
+済みにするだけの `acknowledge_problem` とは異なります。読み取り版は
+`get_maintenance_windows` です。
+
+対象ホストは `location`（ホストの `location` タグ）と `hosts`（カンマ区切
+りの完全一致ホスト名）の**どちらか一方のみ**で指定します（両方・どちらも
+指定は Zabbix を呼ぶ前に拒否）。`since`/`till` は `"%Y/%m/%d %H:%M:%S"`
+形式の文字列で、**MCP サーバプロセス自身のローカルタイムゾーン**で解釈さ
+れます（固定タイムゾーンではありません）。サーバが意図したタイムゾーンで
+動いていない場合は事前に変換してください。
+
+**冪等性キーは `name` + `since` で、対象そのものではありません。** 同じ
+選択モード（location か hosts）のもとで同じ `name`/`since` を再度呼ぶと、
+今回の対象が異なっていても**最初に作られた窓**がそのまま返ります（エラー
+にもならず、新しい窓も作られません）。同時期に複数のメンテナンスが開く
+可能性があるときは、実際の対象を一意に示す `name` を選んでください:
+
+```text
+Maintenance window active for location='CIT' from 2026/08/10 11:00:00 to
+2026/08/10 17:00:00 (maintenance id(s): 42).
+```
+
+書き込み成功後の確認読み取り（セッション切れ・`active_till` の解析失敗等）
+が失敗しても、窓自体は実在します — レスポンスは呼び出し元の `till` に
+フォールバックし `(unconfirmed)` を付けます。既に成功した書き込みを失敗と
+誤報告することはありません。`acknowledge_problem` と同じ理由でライブスモー
+クテストから名指しでスキップされています — 実際にメンテナンスウィンドウ
+を開いて本物のアラートを抑止してしまうためです。
 
 ### `get_maintenance_windows(include_expired=False)`
 
