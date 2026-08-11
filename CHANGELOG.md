@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/shigechika/zapi-mcp/compare/v0.7.0...v0.8.0) (2026-08-10)
+
+
+### Features
+
+* add set_maintenance tool (location tag or explicit host names) ([#57](https://github.com/shigechika/zapi-mcp/issues/57)) ([772c33a](https://github.com/shigechika/zapi-mcp/commit/772c33a5c2f8be4c229b0e04afc03b6421f4294e))
+
 ## [0.7.0](https://github.com/shigechika/zapi-mcp/compare/v0.6.3...v0.7.0) (2026-08-08)
 
 
