@@ -394,6 +394,367 @@ def test_set_maintenance_reports_unresolved_host_as_zabbix_error():
     assert "cit-sw-typo" in out
 
 
+# ---- _window_state (pure logic) --------------------------------------------
+
+
+def test_window_state_active_one_time():
+    now = 1_000_000
+    w = {
+        "active_since": str(now - 100),
+        "active_till": str(now + 100),
+        "timeperiods": [{"timeperiod_type": "0", "start_date": str(now - 100), "period": "200"}],
+    }
+    assert server._window_state(w, now) == ("active", False)
+
+
+def test_window_state_upcoming_outer_frame():
+    now = 1_000_000
+    w = {"active_since": str(now + 100), "active_till": str(now + 200), "timeperiods": []}
+    assert server._window_state(w, now) == ("upcoming", False)
+
+
+def test_window_state_expired_outer_frame():
+    now = 1_000_000
+    w = {"active_since": str(now - 200), "active_till": str(now - 100), "timeperiods": []}
+    assert server._window_state(w, now) == ("expired", False)
+
+
+def test_window_state_malformed_till_with_valid_since_is_not_silently_expired():
+    # A corrupted/unparseable active_till on an otherwise-real, ongoing
+    # window must not make it vanish from the default (non-expired) view --
+    # that would defeat the point of surfacing maintenance context at all
+    # (regression found by /code-review on PR#63).
+    now = 1_000_000
+    w = {"active_since": str(now - 200), "active_till": "not-a-number", "timeperiods": []}
+    assert server._window_state(w, now) == ("active", False)
+
+
+def test_window_state_one_time_not_yet_started_within_outer_frame():
+    # The outer frame (active_since/active_till) is already open, but the
+    # window's own one-time period hasn't started -- must not report active.
+    now = 1_000_000
+    w = {
+        "active_since": str(now - 100),
+        "active_till": str(now + 1000),
+        "timeperiods": [{"timeperiod_type": "0", "start_date": str(now + 500), "period": "100"}],
+    }
+    assert server._window_state(w, now) == ("upcoming", False)
+
+
+def test_window_state_one_time_already_ended_within_outer_frame():
+    now = 1_000_000
+    w = {
+        "active_since": str(now - 1000),
+        "active_till": str(now + 100),
+        "timeperiods": [{"timeperiod_type": "0", "start_date": str(now - 1000), "period": "500"}],
+    }
+    assert server._window_state(w, now) == ("expired", False)
+
+
+def test_window_state_recurring_period_uses_outer_frame():
+    now = 1_000_000
+    w = {
+        "active_since": str(now - 100),
+        "active_till": str(now + 100),
+        "timeperiods": [{"timeperiod_type": "2", "start_time": "0", "period": "3600"}],
+    }
+    assert server._window_state(w, now) == ("active", True)
+
+
+def test_window_state_gap_between_two_one_time_periods_is_upcoming_not_expired():
+    # One period already ended, a second hasn't started yet, "now" sits in
+    # the gap between them -- must report the still-upcoming period, not
+    # "expired" just because an earlier period is done (regression for
+    # ai-review R1F1 on PR#63).
+    now = 1_000_000
+    w = {
+        "active_since": str(now - 10_000),
+        "active_till": str(now + 10_000),
+        "timeperiods": [
+            {"timeperiod_type": "0", "start_date": str(now - 2000), "period": "500"},  # already ended
+            {"timeperiod_type": "0", "start_date": str(now + 2000), "period": "500"},  # still to come
+        ],
+    }
+    assert server._window_state(w, now) == ("upcoming", False)
+
+
+def test_window_state_all_one_time_periods_ended_is_expired():
+    now = 1_000_000
+    w = {
+        "active_since": str(now - 10_000),
+        "active_till": str(now + 10_000),
+        "timeperiods": [
+            {"timeperiod_type": "0", "start_date": str(now - 3000), "period": "500"},
+            {"timeperiod_type": "0", "start_date": str(now - 2000), "period": "500"},
+        ],
+    }
+    assert server._window_state(w, now) == ("expired", False)
+
+
+# ---- _window_upcoming_start (pure logic) -----------------------------------
+
+
+def test_window_upcoming_start_before_outer_frame_opens():
+    now = 1_000_000
+    w = {"active_since": str(now + 500), "active_till": str(now + 1500), "timeperiods": []}
+    assert server._window_upcoming_start(w, now) == now + 500
+
+
+def test_window_upcoming_start_before_outer_frame_opens_but_period_starts_later():
+    # The outer frame opens later today, but the window's actual one-time
+    # period doesn't start until 9 days after that -- the effective start
+    # must be the period's own start, not active_since (regression: the
+    # earlier fix only handled "frame already open, period not yet started";
+    # this is the "frame not open yet either" half of the same bug, found by
+    # /code-review on PR#63 after the R1F2 ledger entry stayed open).
+    now = 1_000_000
+    since = now + 500
+    period_start = since + 9 * 86_400
+    w = {
+        "active_since": str(since),
+        "active_till": str(period_start + 100_000),
+        "timeperiods": [{"timeperiod_type": "0", "start_date": str(period_start), "period": "600"}],
+    }
+    assert server._window_upcoming_start(w, now) == period_start
+
+
+def test_window_upcoming_start_uses_period_start_not_active_since():
+    # Outer frame already opened (active_since is in the past), but the
+    # window's own one-time period doesn't start until later -- the "starts
+    # today" check must use that later moment, not active_since (regression
+    # for ai-review R1F2 on PR#63).
+    now = 1_000_000
+    w = {
+        "active_since": str(now - 100_000),
+        "active_till": str(now + 100_000),
+        "timeperiods": [{"timeperiod_type": "0", "start_date": str(now + 3600), "period": "600"}],
+    }
+    assert server._window_upcoming_start(w, now) == now + 3600
+
+
+def test_window_upcoming_start_picks_earliest_future_period():
+    now = 1_000_000
+    w = {
+        "active_since": str(now - 100_000),
+        "active_till": str(now + 100_000),
+        "timeperiods": [
+            {"timeperiod_type": "0", "start_date": str(now + 7200), "period": "600"},
+            {"timeperiod_type": "0", "start_date": str(now + 3600), "period": "600"},
+        ],
+    }
+    assert server._window_upcoming_start(w, now) == now + 3600
+
+
+def test_epoch_to_local_date_handles_out_of_range():
+    # A timestamp large enough to overflow datetime.fromtimestamp() must
+    # degrade to None, not raise (regression for ai-review R2F1 on PR#63).
+    assert server._epoch_to_local_date(99999999999999) is None
+
+
+# ---- _window_hosts / _fmt_window_hosts (pure formatting) -------------------
+
+
+def test_window_hosts_reads_groups_or_hostgroups_key():
+    # get_maintenances() returns "groups" pre-6.4 and "hostgroups" >=6.4 for
+    # the selected host-group data -- a group-only window must not read blank
+    # just because the caller's Zabbix generation used the other key.
+    pre_64 = {"hosts": [], "groups": [{"groupid": "1", "name": "Group A"}]}
+    assert server._window_hosts(pre_64) == ([], ["Group A"])
+    post_64 = {"hosts": [], "hostgroups": [{"groupid": "1", "name": "Group A"}]}
+    assert server._window_hosts(post_64) == ([], ["Group A"])
+
+
+def test_window_hosts_separates_hosts_from_groups():
+    m = {
+        "hosts": [{"hostid": "1", "host": "host-a"}],
+        "hostgroups": [{"groupid": "1", "name": "Routers"}],
+    }
+    assert server._window_hosts(m) == (["host-a"], ["Routers"])
+
+
+def test_fmt_window_hosts_truncates_and_pluralizes():
+    assert server._fmt_window_hosts([], [], 8) == "no hosts"
+    assert server._fmt_window_hosts(["a"], [], 8) == "1 host: a"
+    names = [f"h{i}" for i in range(10)]
+    assert server._fmt_window_hosts(names, [], 8) == "10 hosts: h0, h1, h2, h3, h4, h5, h6, h7, … and 2 more"
+
+
+def test_fmt_window_hosts_reports_groups_separately_not_as_a_host():
+    # A host-group-only window must not be reported as "1 host: group:X" --
+    # the group's member count isn't known here, so it's a group, not a host
+    # (regression for ai-review R1F3 on PR#63).
+    assert server._fmt_window_hosts([], ["Routers"], 8) == "1 group: Routers"
+    assert server._fmt_window_hosts(["host-a"], ["Routers"], 8) == "1 host: host-a; 1 group: Routers"
+
+
+# ---- get_maintenance_windows ------------------------------------------------
+
+
+def _one_time_window(*, maintenanceid, name, since_offset, till_offset, hosts=None, maintenance_type="0"):
+    """A maintenance.get row with one one-time period matching its outer frame
+    exactly -- the shape set_maintenance/set_maintenance_for_hosts always create."""
+    now = _frozen_now_ts()
+    since, till = now + since_offset, now + till_offset
+    return {
+        "maintenanceid": maintenanceid,
+        "name": name,
+        "active_since": str(since),
+        "active_till": str(till),
+        "maintenance_type": maintenance_type,
+        "description": "planned outage",
+        "hosts": hosts if hosts is not None else [{"hostid": "1", "host": "host-a", "name": "Host A"}],
+        "timeperiods": [{"timeperiod_type": "0", "start_date": str(since), "period": str(till - since)}],
+        "tags": [],
+    }
+
+
+@freeze_time(FROZEN_NOW)
+def test_get_maintenance_windows_shows_active_window():
+    w = _one_time_window(maintenanceid="1", name="MW-1", since_offset=-3600, till_offset=3600)
+    with make_router(results={"maintenance.get": [w]}):
+        out = _call(server.get_maintenance_windows)()
+    assert "Maintenance Windows (1 active, 0 upcoming):" in out
+    assert "## Active" in out
+    assert "MW-1" in out
+    assert "1 host: host-a" in out
+    assert "planned outage" in out
+
+
+@freeze_time(FROZEN_NOW)
+def test_get_maintenance_windows_shows_upcoming_window():
+    w = _one_time_window(maintenanceid="2", name="MW-2", since_offset=3600, till_offset=7200)
+    with make_router(results={"maintenance.get": [w]}):
+        out = _call(server.get_maintenance_windows)()
+    assert "Maintenance Windows (0 active, 1 upcoming):" in out
+    assert "## Upcoming" in out
+    assert "## Active" not in out
+
+
+@freeze_time(FROZEN_NOW)
+def test_get_maintenance_windows_excludes_expired_by_default():
+    w = _one_time_window(maintenanceid="3", name="MW-3", since_offset=-7200, till_offset=-3600)
+    with make_router(results={"maintenance.get": [w]}):
+        out = _call(server.get_maintenance_windows)()
+    assert out == "No maintenance windows."
+
+
+@freeze_time(FROZEN_NOW)
+def test_get_maintenance_windows_include_expired_shows_expired():
+    w = _one_time_window(maintenanceid="3", name="MW-3", since_offset=-7200, till_offset=-3600)
+    with make_router(results={"maintenance.get": [w]}):
+        out = _call(server.get_maintenance_windows)(include_expired=True)
+    assert "## Expired (1)" in out
+    assert "MW-3" in out
+
+
+@freeze_time(FROZEN_NOW)
+def test_get_maintenance_windows_recurring_window_labeled():
+    now = _frozen_now_ts()
+    w = {
+        "maintenanceid": "5",
+        "name": "MW-5",
+        "active_since": str(now - 3600),
+        "active_till": str(now + 3600 * 24 * 30),
+        "maintenance_type": "0",
+        "description": "",
+        "hosts": [{"hostid": "1", "host": "host-a", "name": "Host A"}],
+        "timeperiods": [{"timeperiod_type": "2", "start_time": "0", "period": "3600"}],
+        "tags": [],
+    }
+    with make_router(results={"maintenance.get": [w]}):
+        out = _call(server.get_maintenance_windows)()
+    assert "Maintenance Windows (1 active, 0 upcoming):" in out
+    assert "(recurring)" in out
+
+
+@freeze_time(FROZEN_NOW)
+def test_get_maintenance_windows_truncates_long_host_list():
+    hosts = [{"hostid": str(i), "host": f"host-{i}", "name": f"Host {i}"} for i in range(10)]
+    w = _one_time_window(maintenanceid="6", name="MW-6", since_offset=-60, till_offset=3600, hosts=hosts)
+    with make_router(results={"maintenance.get": [w]}):
+        out = _call(server.get_maintenance_windows)()
+    assert "… and 2 more" in out
+
+
+@freeze_time(FROZEN_NOW)
+def test_get_maintenance_windows_no_data_collection_label():
+    w = _one_time_window(maintenanceid="7", name="MW-7", since_offset=-60, till_offset=3600, maintenance_type="1")
+    with make_router(results={"maintenance.get": [w]}):
+        out = _call(server.get_maintenance_windows)()
+    assert "[no data collection]" in out
+
+
+def test_get_maintenance_windows_empty():
+    with make_router(results={"maintenance.get": []}):
+        out = _call(server.get_maintenance_windows)()
+    assert out == "No maintenance windows."
+
+
+def test_get_maintenance_windows_zabbix_error_resets_client():
+    def handler(request):
+        payload = json.loads(request.content)
+        m = payload["method"]
+        if m in ("apiinfo.version", "user.login"):
+            return httpx.Response(200, json={"result": "6.0.0" if m == "apiinfo.version" else "tok", "id": 1})
+        return httpx.Response(200, json={"error": {"message": "boom"}, "id": 1})
+
+    with respx.mock(assert_all_called=False) as router:
+        router.post(ENDPOINT).mock(side_effect=handler)
+        out = _call(server.get_maintenance_windows)()
+    assert "Zabbix error" in out
+    assert server._CLIENT is None
+
+
+def test_get_maintenance_windows_calls_maintenance_get_once():
+    w = _one_time_window(maintenanceid="1", name="MW-1", since_offset=-60, till_offset=60)
+    r = make_router(results={"maintenance.get": [w]})
+    with r:
+        _call(server.get_maintenance_windows)()
+    calls = [x for x in r.captured if x["payload"]["method"] == "maintenance.get"]
+    assert len(calls) == 1
+
+
+@freeze_time(FROZEN_NOW)
+def test_get_maintenance_windows_period_gap_shows_as_upcoming():
+    # End-to-end check for the R1F1 fix: a window between two one-time
+    # periods must appear under Upcoming, not be silently dropped as expired.
+    now = _frozen_now_ts()
+    w = {
+        "maintenanceid": "8",
+        "name": "MW-8",
+        "active_since": str(now - 10_000),
+        "active_till": str(now + 10_000),
+        "maintenance_type": "0",
+        "description": "",
+        "hosts": [{"hostid": "1", "host": "host-a", "name": "Host A"}],
+        "timeperiods": [
+            {"timeperiod_type": "0", "start_date": str(now - 2000), "period": "500"},
+            {"timeperiod_type": "0", "start_date": str(now + 2000), "period": "500"},
+        ],
+        "tags": [],
+    }
+    with make_router(results={"maintenance.get": [w]}):
+        out = _call(server.get_maintenance_windows)()
+    assert "Maintenance Windows (0 active, 1 upcoming):" in out
+    assert "## Upcoming" in out
+    assert "MW-8" in out
+
+
+def test_get_maintenance_windows_host_group_reported_as_group_not_host():
+    w = _one_time_window(
+        maintenanceid="9",
+        name="MW-9",
+        since_offset=-60,
+        till_offset=60,
+        hosts=[],
+    )
+    w["hostgroups"] = [{"groupid": "1", "name": "Routers"}]
+    with make_router(results={"maintenance.get": [w]}):
+        out = _call(server.get_maintenance_windows)()
+    assert "1 group: Routers" in out
+    assert "1 host:" not in out
+
+
 # ---- health_check ---------------------------------------------------------
 
 
@@ -712,6 +1073,214 @@ def test_daily_brief_survives_count_failure(monkeypatch):
     assert "High CPU on core-rt1" in out  # section rendered, not replaced by an error
 
 
+# ---- daily_brief: In Maintenance -------------------------------------------
+
+
+@freeze_time(FROZEN_NOW)
+def test_daily_brief_shows_active_maintenance_section(monkeypatch):
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+    w = _one_time_window(maintenanceid="1", name="MW-1", since_offset=-3600, till_offset=3600)
+    with make_router(results={"problem.get": [], "maintenance.get": [w]}):
+        out = _call(server.daily_brief)()
+    assert "## In Maintenance (1 window)" in out
+    assert "MW-1" in out
+    # Section sits between Active Problems and the category area, not before/after both.
+    assert out.index("## Active Problems") < out.index("## In Maintenance") < out.index("No categories configured")
+
+
+@freeze_time(FROZEN_NOW)
+def test_daily_brief_marks_recurring_window_in_maintenance_line():
+    # get_maintenance_windows shows "(recurring)" for a non-one-time period;
+    # the brief's In-Maintenance line must show the same caveat, not present
+    # an unqualified line that reads as an exact, precisely-evaluated window
+    # (regression found by /code-review on PR#63).
+    now = _frozen_now_ts()
+    w = {
+        "maintenanceid": "20",
+        "name": "MW-20",
+        "active_since": str(now - 3600),
+        "active_till": str(now + 3600 * 24 * 30),
+        "maintenance_type": "0",
+        "description": "",
+        "hosts": [{"hostid": "1", "host": "host-a", "name": "Host A"}],
+        "timeperiods": [{"timeperiod_type": "2", "start_time": "0", "period": "3600"}],
+        "tags": [],
+    }
+    with make_router(results={"problem.get": [], "maintenance.get": [w]}):
+        out = _call(server.daily_brief)()
+    assert "## In Maintenance (1 window)" in out
+    assert "MW-20 (recurring)" in out
+
+
+@freeze_time(FROZEN_NOW)
+def test_daily_brief_omits_maintenance_section_for_future_day_upcoming(monkeypatch):
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+    # Starts tomorrow (frozen "now" is 2026-06-01 12:00), not today.
+    w = _one_time_window(maintenanceid="2", name="MW-2", since_offset=3600 * 30, till_offset=3600 * 32)
+    with make_router(results={"problem.get": [], "maintenance.get": [w]}):
+        out = _call(server.daily_brief)()
+    assert "## In Maintenance" not in out
+
+
+@freeze_time(FROZEN_NOW)
+def test_daily_brief_shows_todays_upcoming_maintenance(monkeypatch):
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+    # Starts later today (frozen "now" is 12:00; +3h keeps the same calendar day).
+    w = _one_time_window(maintenanceid="3", name="MW-3", since_offset=3 * 3600, till_offset=5 * 3600)
+    with make_router(results={"problem.get": [], "maintenance.get": [w]}):
+        out = _call(server.daily_brief)()
+    assert "## In Maintenance (1 window)" in out
+    assert "Starting today: MW-3" in out
+
+
+@freeze_time(FROZEN_NOW)
+def test_daily_brief_uses_period_start_not_outer_frame_for_todays_check(monkeypatch):
+    # The outer frame opened yesterday, but the window's own one-time period
+    # doesn't start until later today -- the brief must key off that actual
+    # start (regression for ai-review R1F2 on PR#63; a naive active_since
+    # check would both miss this case and, in the mirror scenario, wrongly
+    # label a window "starting today" when only its outer frame does).
+    now = _frozen_now_ts()
+    w = {
+        "maintenanceid": "10",
+        "name": "MW-10",
+        "active_since": str(now - 86_400),  # opened yesterday
+        "active_till": str(now + 86_400),
+        "maintenance_type": "0",
+        "description": "",
+        "hosts": [{"hostid": "1", "host": "host-a", "name": "Host A"}],
+        "timeperiods": [{"timeperiod_type": "0", "start_date": str(now + 3600), "period": "600"}],
+        "tags": [],
+    }
+    with make_router(results={"problem.get": [], "maintenance.get": [w]}):
+        out = _call(server.daily_brief)()
+    assert "## In Maintenance (1 window)" in out
+    assert "Starting today: MW-10" in out
+
+
+@freeze_time(FROZEN_NOW)
+def test_daily_brief_does_not_label_tomorrows_period_as_starting_today(monkeypatch):
+    # Mirror of the case above: the outer frame opens today, but the window's
+    # own one-time period doesn't start until tomorrow -- must NOT be shown
+    # (a naive active_since check would falsely label this "starting today").
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+    now = _frozen_now_ts()
+    w = {
+        "maintenanceid": "11",
+        "name": "MW-11",
+        "active_since": str(now - 3600),  # outer frame opened today
+        "active_till": str(now + 100_000),
+        "maintenance_type": "0",
+        "description": "",
+        "hosts": [{"hostid": "1", "host": "host-a", "name": "Host A"}],
+        "timeperiods": [{"timeperiod_type": "0", "start_date": str(now + 30 * 3600), "period": "600"}],  # tomorrow
+        "tags": [],
+    }
+    with make_router(results={"problem.get": [], "maintenance.get": [w]}):
+        out = _call(server.daily_brief)()
+    assert "## In Maintenance" not in out
+
+
+def test_daily_brief_survives_out_of_range_period_start(monkeypatch):
+    # An absurd/corrupted start_date must degrade this one window's "starts
+    # today" check, not crash datetime.fromtimestamp() and take down the
+    # entire brief (regression for ai-review R2F1 on PR#63).
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+    w = {
+        "maintenanceid": "12",
+        "name": "MW-12",
+        "active_since": "1000",
+        "active_till": "99999999999999",
+        "maintenance_type": "0",
+        "description": "",
+        "hosts": [{"hostid": "1", "host": "host-a", "name": "Host A"}],
+        "timeperiods": [{"timeperiod_type": "0", "start_date": "99999999999999", "period": "600"}],
+        "tags": [],
+    }
+    with make_router(results={"problem.get": [], "maintenance.get": [w]}):
+        out = _call(server.daily_brief)()  # must not raise
+    assert "# Daily Brief" in out
+    assert "## In Maintenance" not in out  # malformed window can't be confirmed as "today"
+
+
+@freeze_time(FROZEN_NOW)
+def test_daily_brief_omits_maintenance_section_when_none_active_or_upcoming_today(monkeypatch):
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+    w = _one_time_window(maintenanceid="4", name="MW-4", since_offset=-7200, till_offset=-3600)  # expired
+    with make_router(results={"problem.get": [], "maintenance.get": [w]}):
+        out = _call(server.daily_brief)()
+    assert "## In Maintenance" not in out
+
+
+def test_daily_brief_survives_maintenance_fetch_failure(monkeypatch):
+    """A maintenance.get failure must not abort the rest of the brief."""
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+
+    def handler(request):
+        payload = json.loads(request.content)
+        m = payload["method"]
+        if m in ("apiinfo.version", "user.login"):
+            return httpx.Response(200, json={"result": "6.0.0" if m == "apiinfo.version" else "tok", "id": 1})
+        if m == "maintenance.get":
+            return httpx.Response(200, json={"error": {"message": "boom"}, "id": 1})
+        return httpx.Response(200, json={"result": [], "id": 1})
+
+    with respx.mock(assert_all_called=False) as router:
+        router.post(ENDPOINT).mock(side_effect=handler)
+        text, had_error = server._daily_brief_text()
+    assert "## In Maintenance\nError: maintenance.get failed:" in text
+    assert "boom" in text
+    assert "No categories configured" in text  # brief continues past the failure
+    assert had_error is True
+    # A poisoned session must not be reused by the category loop that
+    # follows: it's reset AND a fresh client is re-acquired (not left None --
+    # a bare reset_client() would leave the loop holding a closed httpx
+    # client via the still-referenced local `client` variable; see the
+    # dedicated re-acquisition test below).
+    assert server._CLIENT is not None
+
+
+def test_daily_brief_maintenance_failure_reacquires_client_for_categories(monkeypatch, tmp_path):
+    """After a maintenance.get failure, the category loop must get a fresh,
+    working client -- not the one reset_client() just closed. A bare
+    reset_client() there leaves the loop holding a dead httpx.Client, whose
+    next call raises RuntimeError (not ZapiError), uncaught by the loop's
+    except ZapiError, crashing the whole brief (regression for ai-review
+    R4F1 on PR#63)."""
+    p = tmp_path / "cats.ini"
+    p.write_text("[dhcp]\nname = DHCP Pool Usage\ntag = dhcp-pool-usage\nitem_key = usage\nthreshold = 80\n")
+    monkeypatch.setenv("ZABBIX_CATEGORIES_INI", str(p))
+
+    login_calls = {"count": 0}
+
+    def handler(request):
+        payload = json.loads(request.content)
+        m = payload["method"]
+        if m == "apiinfo.version":
+            return httpx.Response(200, json={"result": "6.0.0", "id": 1})
+        if m == "user.login":
+            login_calls["count"] += 1
+            return httpx.Response(200, json={"result": "tok", "id": 1})
+        if m == "maintenance.get":
+            return httpx.Response(200, json={"error": {"message": "boom"}, "id": 1})
+        if m == "problem.get":
+            return httpx.Response(200, json={"result": [], "id": 1})
+        if m == "host.get":
+            return httpx.Response(200, json={"result": [SAMPLE_HOST], "id": 1})
+        if m == "item.get":
+            return httpx.Response(200, json={"result": [SAMPLE_ITEM], "id": 1})
+        return httpx.Response(200, json={"result": [], "id": 1})
+
+    with respx.mock(assert_all_called=False) as router:
+        router.post(ENDPOINT).mock(side_effect=handler)
+        text, had_error = server._daily_brief_text()  # must not raise
+    assert "## In Maintenance\nError:" in text
+    assert "DHCP Pool Usage" in text  # category rendered -- proves the loop got a working client
+    assert "85.5" in text
+    assert had_error is True
+    assert login_calls["count"] == 2  # original login + reauth after reset_client()
+
+
 # ---- helpers --------------------------------------------------------------
 
 
@@ -769,6 +1338,14 @@ def test_fmt_time_handles_bad_input():
     assert server._fmt_time(0) == "—"
     assert server._fmt_time("0") == "—"  # Zabbix sends string "0" for "never"
     assert server._fmt_time("not-a-number") == "—"
+
+
+def test_fmt_time_handles_out_of_range_epoch():
+    # datetime.fromtimestamp() raises ValueError (not just OverflowError/
+    # OSError) for a timestamp whose year is outside 1..9999 -- get_maintenances()
+    # can surface one of these from a malformed maintenance window (ai-review
+    # R2F1 on PR#63 found this same gap in the sibling _epoch_to_local_date).
+    assert server._fmt_time("99999999999999") == "99999999999999"
 
 
 def test_severity_name():

@@ -22,12 +22,13 @@ Documentation: <https://shigechika.github.io/zapi-mcp/>
 | Tool | Description |
 |------|-------------|
 | `health_check` | Server version, Zabbix connectivity/auth, detected API version, and configured `daily_brief` categories — call at session start or after a timeout |
-| `daily_brief` | Morning patrol: active problems (Warning+) plus one section per configured category |
+| `daily_brief` | Morning patrol: active problems (Warning+), hosts currently in maintenance, plus one section per configured category |
 | `get_problems` | Active problems by severity and tag, newest-first with age; header shows the true total (`showing N of TOTAL` when capped); output includes `eventid` |
 | `get_hosts` | List hosts filtered by role/tag/group, with IP and tags |
 | `get_host_items` | Current item values for a host (server-side host filter) |
 | `acknowledge_problem` | Acknowledge problems and add a message (does not close them) |
 | `set_maintenance` | Open an idempotent Zabbix maintenance window, selecting hosts by `location` tag or by exact host name (exactly one of the two) |
+| `get_maintenance_windows` | List maintenance windows (Active/Upcoming/Expired) — cross-check before treating another tool's alert as a new incident |
 
 ## Setup
 
@@ -66,8 +67,10 @@ Set the following environment variables:
 | `ZABBIX_BRIEF_PROBLEM_LIMIT` | Max active problems `daily_brief` fetches per call before counting the rest | `1000` |
 
 The API user needs read permission for the host groups you query, plus
-acknowledge permission if you use `acknowledge_problem`, and maintenance-write
-permission if you use `set_maintenance`.
+acknowledge permission if you use `acknowledge_problem`, maintenance-write
+permission if you use `set_maintenance`, and maintenance-read permission
+(usually included by default) for `get_maintenance_windows` and the
+`daily_brief` "In Maintenance" section.
 
 ### Active problems in `daily_brief`
 
@@ -78,6 +81,17 @@ its age (e.g. `3h ago`). Problems older than the recent window
 keeps active because their recovery is never auto-confirmed (ICMP ping down, RDP
 down, …) doesn't bury what just happened. Section headers carry the true total
 and show `showing N of TOTAL` when the fetch is capped, never a silent truncation.
+
+### Maintenance windows in `daily_brief`
+
+Right after Active Problems, `daily_brief` lists hosts covered by a
+maintenance window that's active now, plus any window starting later today —
+so a planned outage isn't mistaken for a new incident by whatever else is
+watching those hosts. The `## In Maintenance` section is omitted entirely
+when there's nothing to show (no news is no maintenance). Windows starting
+tomorrow or later, and expired windows, aren't included here; call
+`get_maintenance_windows` (optionally with `include_expired=True`) for the
+full picture.
 
 ### Categories for `daily_brief` (optional)
 

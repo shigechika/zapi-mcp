@@ -27,6 +27,7 @@ DEFAULT_RESULTS: dict[str, object] = {
     "problem.get": [],
     "event.get": [],
     "event.acknowledge": {"eventids": ["1"]},
+    "maintenance.get": [],
 }
 
 

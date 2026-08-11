@@ -17,8 +17,10 @@ values.
 | `get_hosts` | Hosts filtered by role / tag / group, with IP and tags |
 | `get_host_items` | Current item values for one host |
 | `acknowledge_problem` | Acknowledge problems and add a message (does not close them) |
+| `set_maintenance` | Open an idempotent Zabbix maintenance window, by `location` tag or by exact host name |
+| `get_maintenance_windows` | List maintenance windows (Active/Upcoming/Expired) — cross-check before treating another tool's alert as a new incident |
 
-Everything except `acknowledge_problem` is read-only.
+Everything except `acknowledge_problem` and `set_maintenance` is read-only.
 
 ## Design notes
 

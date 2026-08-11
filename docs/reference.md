@@ -45,6 +45,9 @@ The morning report. Structure:
 - Unavailable by ICMP ping  eventid=18813696  (2026-08-06 07:12, 2h ago)
 - … and 21 older (stale; oldest 2024-10-04 10:39)
 
+## In Maintenance (1 window)
+- Legal-inspection-2608110900h  until 2026-08-11 17:00:00  (12 hosts: sw-01, sw-02, sw-03, sw-04, sw-05, sw-06, … and 6 more)
+
 ## DHCP Pool Usage (2 hosts)
 - POOL-A: 100.0 %  ⚠️  (2026-08-06 09:00:00)
 - POOL-B: 82.3 %  (2026-08-06 09:00:00)
@@ -54,8 +57,19 @@ Problems are Warning and above, newest-first, each with its `eventid`, onset
 time and age. The severity heading carries both the bucket size and how many of
 those are recent. Anything older than `ZABBIX_BRIEF_RECENT_HOURS` is folded into
 the `… and N older` line — note that the severity name is not repeated on each
-row, since the heading already states it. Category sections follow, one per
-configured `[section]`, with `⚠️` marking values past the threshold.
+row, since the heading already states it.
+
+Right after Active Problems, `## In Maintenance` lists hosts under a
+maintenance window that's active right now, plus any window starting later
+today — cross-check these before treating another tool's finding about the
+same hosts as a new incident. The section is **omitted entirely** when
+there's nothing to show; a brief with no such section means no host is
+currently (or about to be, today) under a registered window. See
+`get_maintenance_windows()` below for windows starting further out, or for
+expired ones.
+
+Category sections follow, one per configured `[section]`, with `⚠️` marking
+values past the threshold.
 
 ### `get_problems(min_severity=2, tag_name=None, tag_value=None, limit=50)`
 
@@ -79,11 +93,40 @@ by substring.
 
 ### `acknowledge_problem(event_ids, message)`
 
-**The only tool that writes.** Acknowledges the given comma-separated event IDs
-and attaches a message. It does not close the problems. An acknowledgement is
-visible to every operator of that Zabbix and cannot be quietly undone, which is
-why the live smoke test skips this tool by name and a unit test enforces the
-skip.
+**The only tool that writes** (besides `set_maintenance`). Acknowledges the
+given comma-separated event IDs and attaches a message. It does not close the
+problems. An acknowledgement is visible to every operator of that Zabbix and
+cannot be quietly undone, which is why the live smoke test skips this tool by
+name and a unit test enforces the skip.
+
+### `get_maintenance_windows(include_expired=False)`
+
+The read counterpart to `set_maintenance`. Lists Zabbix maintenance windows,
+grouped Active / Upcoming (and Expired when `include_expired=True`):
+
+```text
+Maintenance Windows (1 active, 1 upcoming):
+
+## Active
+- Legal-inspection-2608110900h  2026-08-11 09:00:00 → 2026-08-11 17:00:00
+  Annual legal inspection
+  12 hosts: sw-01, sw-02, rt-01, rt-02, ap-01, ap-02, fw-01, fw-02, … and 4 more
+
+## Upcoming
+- UPS-check-2608150900h  2026-08-15 09:00:00 → 2026-08-15 12:00:00  [no data collection]
+  UPS battery replacement
+  2 hosts: b-sw-01, b-sw-02
+```
+
+"Active" means the current time falls inside the window's own time period,
+not just its outer `active_since`/`active_till` frame — exact for a one-time
+window (the kind `set_maintenance`/`set_maintenance_for_hosts` create). A
+window with a recurring time period (set up outside this server, e.g. via the
+Zabbix UI) is instead evaluated against its outer frame only and labeled
+`(recurring)`. `[no data collection]` marks a window that also suspends data
+collection, not just alerting. Expired windows accumulate over time since
+`set_maintenance` never deletes them, so they're excluded unless
+`include_expired=True` is passed. Empty result: `No maintenance windows.`
 
 ## CLI
 

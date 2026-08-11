@@ -75,7 +75,12 @@ def _fmt_time(epoch: int | str | None) -> str:
         return "—"
     try:
         return datetime.fromtimestamp(e).astimezone().strftime("%Y-%m-%d %H:%M:%S")
-    except (OverflowError, OSError):
+    except (OverflowError, OSError, ValueError):
+        # ValueError: datetime.fromtimestamp() raises this (not just
+        # OverflowError/OSError) for a timestamp whose year falls outside
+        # 1..9999 -- observed in practice via get_maintenance_windows, whose
+        # active_since/active_till come from Zabbix's maintenance.get and
+        # aren't otherwise range-checked.
         return str(epoch)
 
 
@@ -413,6 +418,50 @@ def _daily_brief_text() -> tuple[str, bool]:
         lines.append(f"\n## Active Problems\nError: {e}")
         return "\n".join(lines), True
 
+    # In-maintenance hosts: a planned outage must not be misread as a new
+    # incident by whatever else is watching these hosts (this server has no
+    # visibility into other tools' findings, so it can only publish what to
+    # check against). Independent try -- unlike Active Problems above, a
+    # failure here doesn't abort the rest of the brief.
+    try:
+        # Second element: the effective start epoch when the window is
+        # upcoming (see _window_upcoming_start -- NOT active_since), None
+        # when it's already active. Used both for "does this start today"
+        # and for sorting/display, so the two can't disagree.
+        shown: list[tuple[dict, int | None]] = []
+        for m in client.get_maintenances():
+            state, _ = _window_state(m, now_ts)
+            if state == "active":
+                shown.append((m, None))
+            elif state == "upcoming":
+                start = _window_upcoming_start(m, now_ts)
+                start_date = _epoch_to_local_date(start) if start is not None else None
+                if start_date is not None and start_date == now_dt.date():
+                    shown.append((m, start))
+        if shown:
+            shown.sort(key=lambda pair: pair[1] if pair[1] is not None else (_epoch(pair[0].get("active_since")) or 0))
+            lines.append(f"\n## In Maintenance ({len(shown)} window{'s' if len(shown) != 1 else ''})")
+            for m, start in shown:
+                lines.append(_window_brief_line(m, upcoming_start=start))
+    except ZapiError as e:
+        lines.append(f"\n## In Maintenance\nError: {e}")
+        had_error = True
+        # Unlike the Active Problems handler above (which returns immediately
+        # after reset_client()), execution continues into the category loop
+        # below using this same `client` variable -- reset_client() closes
+        # the httpx client it points to, so a bare reset here would hand the
+        # loop a dead connection (a non-ZapiError RuntimeError on the very
+        # next call, uncaught by the loop's `except ZapiError`, crashing the
+        # whole brief -- worse than the failure being handled). Re-acquire a
+        # fresh, reauthenticated client for the loop to use instead; if that
+        # itself fails, there's no usable client left, so stop here rather
+        # than hand the loop something broken (/code-review R4F1).
+        reset_client()
+        try:
+            client = _client()
+        except (KeyError, ZapiError):
+            return "\n".join(lines), True
+
     # Per-category sections
     categories, categories_error = _load_categories_safe()
     if categories_error:
@@ -440,15 +489,23 @@ def _daily_brief_text() -> tuple[str, bool]:
 def daily_brief() -> str:
     """Morning patrol summary.
 
-    Reports active problems (Warning and above), then one section per category
-    configured via ZABBIX_CATEGORIES_INI (e.g. DHCP pool usage, SNAT session
-    usage, core-network problems). Item-based categories show current values
-    sorted high-to-low; problem-based categories list active problems.
+    Reports active problems (Warning and above), hosts currently in
+    maintenance, then one section per category configured via
+    ZABBIX_CATEGORIES_INI (e.g. DHCP pool usage, SNAT session usage,
+    core-network problems). Item-based categories show current values sorted
+    high-to-low; problem-based categories list active problems.
 
     Problems are listed newest-first with their age; those older than the recent
     window (ZABBIX_BRIEF_RECENT_HOURS, default 24h) are folded to a count so a
     long-standing backlog of un-recovered fossils doesn't bury today's events.
     Section headers show the true total ('showing N of TOTAL' when capped).
+
+    The "## In Maintenance" section lists windows that are active now, plus
+    windows starting later today -- cross-check these hosts before treating
+    another tool's alert about them as a new incident. No section means no
+    host is currently (or about to be, today) under a registered maintenance
+    window; see get_maintenance_windows for the full picture including
+    tomorrow-or-later and expired windows.
     """
     text, _ = _daily_brief_text()
     return text
@@ -718,3 +775,287 @@ def set_maintenance(
         f"Maintenance window active for {target} from {since} to {actual_till} "
         f"(maintenance id(s): {', '.join(maintenance_ids)})."
     )
+
+
+# ------------------------------------------------------------------
+# Maintenance (read)
+# ------------------------------------------------------------------
+
+# How many hosts to list per window before folding the rest to "… and N more".
+MAINT_HOST_DISPLAY_LIMIT = 8
+MAINT_BRIEF_HOST_DISPLAY_LIMIT = 6
+
+# Zabbix timeperiod_type: "0" is one-time; "2"/"3"/"4" are daily/weekly/monthly.
+_ONE_TIME_PERIOD = "0"
+
+
+def _epoch(value: object) -> int | None:
+    """Parse a Zabbix epoch-as-string field; None when missing/unparseable."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _epoch_to_local_date(epoch: int):
+    """The local calendar date for an epoch, or None if out of platform range.
+
+    A malformed/absurd start_date (e.g. from a hand-crafted or corrupted
+    maintenance window) must degrade this one window's "starts today" check,
+    not crash datetime.fromtimestamp() and take down the whole brief -- same
+    defensive scope as _fmt_time's (OverflowError, OSError, ValueError) catch.
+    """
+    try:
+        return datetime.fromtimestamp(epoch).astimezone().date()
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _is_recurring(periods: list[dict]) -> bool:
+    """True when any period is daily/weekly/monthly rather than one-time.
+
+    Single source of truth for this predicate -- _window_state,
+    _window_upcoming_start, and the display helpers must all agree on which
+    windows get the "(recurring)" caveat and the outer-frame fallback.
+    """
+    return any(p.get("timeperiod_type") != _ONE_TIME_PERIOD for p in periods)
+
+
+def _one_time_spans(periods: list[dict], since: int, till: int | None) -> list[tuple[int, int]]:
+    """[start, end] spans for one-time periods, clipped to the outer frame.
+
+    ``till`` may be None (an unparseable/missing active_till on an otherwise
+    valid window -- see _window_state) -- a period's end is then left
+    unclipped rather than the window being silently discarded upstream.
+
+    Shared by _window_state (classification) and _window_upcoming_start (the
+    brief's "does this start today" check) so the two can never disagree
+    about what a window's actual time period spans are.
+    """
+    spans = []
+    for p in periods:
+        start = _epoch(p.get("start_date"))
+        length = _epoch(p.get("period"))
+        if start is None or length is None:
+            continue
+        end = start + length
+        if till is not None:
+            end = min(end, till)
+        spans.append((max(start, since), end))
+    return spans
+
+
+def _window_state(m: dict, now_ts: int) -> tuple[str, bool]:
+    """Classify a maintenance window as 'active', 'upcoming', or 'expired'.
+
+    A one-time period (timeperiod_type '0') is evaluated precisely against its
+    own [start_date, start_date + period] span, clipped to the outer
+    [active_since, active_till] frame -- this is exact for windows created by
+    set_maintenance/set_maintenance_for_hosts, which always emit a single
+    one-time period matching the outer frame exactly. Multiple one-time
+    periods are each checked independently, so a window that's between two
+    periods (one already past, one still to come) reports 'upcoming', not
+    'expired' -- expired only when every period has already ended. A window
+    with any recurring period (daily/weekly/monthly -- only possible via the
+    Zabbix UI or another API caller, never via set_maintenance) can't be
+    evaluated without a full recurrence engine, so it falls back to the outer
+    frame and is flagged `recurring=True` so callers can label it honestly
+    instead of claiming precision the classification doesn't have.
+
+    An unparseable active_till (with a valid active_since) does NOT force
+    'expired': a corrupted end date shouldn't make an otherwise-real window
+    vanish from the default view, defeating the point of surfacing it at all.
+
+    Returns (state, recurring).
+    """
+    since = _epoch(m.get("active_since"))
+    if since is None:
+        return "expired", False
+    if now_ts < since:
+        return "upcoming", False
+    till = _epoch(m.get("active_till"))
+    if till is not None and now_ts > till:
+        return "expired", False
+
+    periods = m.get("timeperiods") or []
+    if _is_recurring(periods):
+        return "active", True
+    if not periods:
+        # A window inside its own active frame with zero time periods isn't a
+        # shape Zabbix normally produces; degrade to the outer frame rather
+        # than crash on it.
+        return "active", False
+
+    spans = _one_time_spans(periods, since, till)
+    if not spans:
+        return "active", False
+    if any(start <= now_ts <= end for start, end in spans):
+        return "active", False
+    if any(now_ts < start for start, _ in spans):
+        return "upcoming", False
+    return "expired", False
+
+
+def _window_upcoming_start(m: dict, now_ts: int) -> int | None:
+    """Epoch a currently-'upcoming' window will actually start being active.
+
+    NOT active_since: a one-time period can start later than the outer frame
+    itself opens -- true whether "now" is before active_since (the frame
+    hasn't opened yet) or after it (the frame is open but the period hasn't
+    started, e.g. a gap between two one-time periods). Both cases resolve
+    the same way here: the earliest one-time period start still ahead of
+    "now", clipped to the outer frame like _window_state's own spans. None
+    only when active_since itself is unparseable (the window would already
+    have been classified 'expired' by _window_state, so this should not be
+    called in that case).
+    """
+    since = _epoch(m.get("active_since"))
+    if since is None:
+        return None
+    periods = m.get("timeperiods") or []
+    if _is_recurring(periods) or not periods:
+        return since
+    till = _epoch(m.get("active_till"))
+    future_starts = [start for start, _ in _one_time_spans(periods, since, till) if now_ts < start]
+    return min(future_starts) if future_starts else since
+
+
+def _window_hosts(m: dict) -> tuple[list[str], list[str]]:
+    """(host names, host-group names) a window covers.
+
+    Kept separate rather than merged into one list: a host group is not the
+    same unit as a host (its member count isn't in this API response, so
+    folding "group:X" into a host list either mislabels the count or hides
+    that group membership isn't resolved -- see _fmt_window_hosts).
+    ``get_maintenances()`` returns ``"groups"`` on Zabbix < 6.4 and
+    ``"hostgroups"`` on >= 6.4 for the selected host-group data; check both.
+    """
+    hosts = [h.get("host", "?") for h in (m.get("hosts") or [])]
+    groups = m.get("hostgroups") if m.get("hostgroups") is not None else m.get("groups")
+    group_names = [g.get("name", "?") for g in (groups or [])]
+    return hosts, group_names
+
+
+def _fmt_window_hosts(hosts: list[str], groups: list[str], limit: int) -> str:
+    """'N hosts: a, b, … and K more' plus 'M groups: X, Y' when the window
+    also targets whole host groups -- group membership isn't resolved here
+    (would need an extra host.get per group), so a group is reported as a
+    group, never silently counted as if it were one host.
+    """
+    parts = []
+    if hosts:
+        label = "host" if len(hosts) == 1 else "hosts"
+        shown = ", ".join(hosts[:limit])
+        if len(hosts) > limit:
+            shown += f", … and {len(hosts) - limit} more"
+        parts.append(f"{len(hosts)} {label}: {shown}")
+    if groups:
+        label = "group" if len(groups) == 1 else "groups"
+        shown = ", ".join(groups[:limit])
+        if len(groups) > limit:
+            shown += f", … and {len(groups) - limit} more"
+        parts.append(f"{len(groups)} {label}: {shown}")
+    if not parts:
+        return "no hosts"
+    return "; ".join(parts)
+
+
+def _window_header(m: dict) -> str:
+    """'<name>  <since> → <till>' plus '(recurring)' / '[no data collection]' flags."""
+    name = m.get("name", "?")
+    since = _fmt_time(m.get("active_since"))
+    till = _fmt_time(m.get("active_till"))
+    header = f"{name}  {since} → {till}"
+    if _is_recurring(m.get("timeperiods") or []):
+        header += "  (recurring)"
+    if str(m.get("maintenance_type", "0")) == "1":
+        header += "  [no data collection]"
+    return header
+
+
+def _window_block(m: dict, host_limit: int) -> list[str]:
+    """Multi-line display block for one window (get_maintenance_windows)."""
+    block = [f"- {_window_header(m)}"]
+    description = (m.get("description") or "").strip()
+    if description:
+        block.append(f"  {description}")
+    hosts, groups = _window_hosts(m)
+    block.append(f"  {_fmt_window_hosts(hosts, groups, host_limit)}")
+    return block
+
+
+def _window_brief_line(m: dict, *, upcoming_start: int | None) -> str:
+    """Single-line display for one window (daily_brief's In Maintenance section).
+
+    `upcoming_start` is the window's actual effective start epoch (see
+    _window_upcoming_start) when it hasn't started yet, None when it's
+    already active -- deliberately NOT the window's outer active_since,
+    which can predate the moment the window itself actually starts.
+    """
+    name = m.get("name", "?")
+    if _is_recurring(m.get("timeperiods") or []):
+        name += " (recurring)"
+    till = _fmt_time(m.get("active_till"))
+    hosts, groups = _window_hosts(m)
+    hosts_str = _fmt_window_hosts(hosts, groups, MAINT_BRIEF_HOST_DISPLAY_LIMIT)
+    if upcoming_start is not None:
+        since = _fmt_time(upcoming_start)
+        return f"- Starting today: {name}  {since} → {till}  ({hosts_str})"
+    return f"- {name}  until {till}  ({hosts_str})"
+
+
+@mcp.tool()
+def get_maintenance_windows(include_expired: bool = False) -> str:
+    """List Zabbix maintenance windows -- the read counterpart to set_maintenance.
+
+    Use this to cross-check anomalies reported by OTHER tools (e.g. device
+    unreachability, AP-offline reports) before treating them as new
+    incidents: a host in an Active window is one Zabbix is currently
+    suppressing new problem notifications for, because someone (or
+    set_maintenance) registered a planned outage covering it.
+
+    Windows are grouped Active / Upcoming (and Expired when requested).
+    "Active" means the current time falls inside the window's own time
+    period, not just its outer active_since/active_till frame -- exact for a
+    one-time window (the kind set_maintenance/set_maintenance_for_hosts
+    create). A window with a recurring time period (set up outside this
+    server) is instead evaluated against its outer frame only and labeled
+    "(recurring)", since precise recurrence evaluation isn't implemented.
+
+    Times are the MCP server process's local timezone (same caveat as
+    set_maintenance's since/till).
+
+    Args:
+        include_expired: Also list windows whose active_till has passed
+            (default False -- set_maintenance never deletes windows, so
+            expired ones accumulate over time and are noise by default).
+    """
+    try:
+        client = _client()
+        windows = client.get_maintenances()
+    except KeyError as e:
+        return f"Missing environment variable: {e}"
+    except ZapiError as e:
+        reset_client()
+        return f"Zabbix error: {e}"
+
+    now_ts = int(datetime.now().astimezone().timestamp())
+    buckets: dict[str, list[dict]] = {"active": [], "upcoming": [], "expired": []}
+    for m in windows:
+        state, _ = _window_state(m, now_ts)
+        buckets[state].append(m)
+
+    if not buckets["active"] and not buckets["upcoming"] and not (include_expired and buckets["expired"]):
+        return "No maintenance windows."
+
+    lines = [f"Maintenance Windows ({len(buckets['active'])} active, {len(buckets['upcoming'])} upcoming):"]
+    for label, key in (("Active", "active"), ("Upcoming", "upcoming")):
+        if buckets[key]:
+            lines.append(f"\n## {label}")
+            for m in sorted(buckets[key], key=lambda m: m.get("active_since", "")):
+                lines.extend(_window_block(m, MAINT_HOST_DISPLAY_LIMIT))
+    if include_expired and buckets["expired"]:
+        lines.append(f"\n## Expired ({len(buckets['expired'])})")
+        for m in sorted(buckets["expired"], key=lambda m: m.get("active_since", "")):
+            lines.extend(_window_block(m, MAINT_HOST_DISPLAY_LIMIT))
+    return "\n".join(lines)

@@ -19,12 +19,13 @@
 | ツール | 説明 |
 |------|------|
 | `health_check` | サーバーバージョン、Zabbix 接続/認証状況、検出された API バージョン、設定済みの `daily_brief` カテゴリ ― セッション開始時やタイムアウト後に呼ぶ |
-| `daily_brief` | 朝のパトロール：アクティブな問題（Warning 以上）＋設定済みカテゴリごとのセクション |
+| `daily_brief` | 朝のパトロール：アクティブな問題（Warning 以上）、現在メンテナンス中のホスト、＋設定済みカテゴリごとのセクション |
 | `get_problems` | 重要度・タグでフィルタしたアクティブな問題を新しい順・経過時間付きで一覧（見出しに正確な総件数、上限超過時は `showing N of TOTAL`／出力に `eventid` を含む） |
 | `get_hosts` | role/タグ/グループでフィルタしたホスト一覧（IP・タグ付き） |
 | `get_host_items` | ホストのアイテム現在値（サーバ側でホスト絞り込み） |
 | `acknowledge_problem` | 問題の acknowledge とメッセージ追加（クローズはしない） |
 | `set_maintenance` | 冪等なZabbixメンテナンス期間を開く。`location` タグまたは個別ホスト名のどちらか一方で対象を指定 |
+| `get_maintenance_windows` | メンテナンス期間の一覧（Active/Upcoming/Expired）― 他ツールのアラートを新規障害と誤認する前に突き合わせる |
 
 ## インストール
 
@@ -64,7 +65,8 @@ pip install -e .
 
 API ユーザには照会するホストグループの参照権限が必要。`acknowledge_problem`
 を使う場合は acknowledge 権限も、`set_maintenance` を使う場合はメンテナンス
-書き込み権限も付与する。
+書き込み権限も、`get_maintenance_windows` と `daily_brief` の「In Maintenance」
+セクションを使う場合はメンテナンス参照権限（通常は既定で付与済み）も付与する。
 
 ### `daily_brief` のアクティブな問題
 
@@ -75,6 +77,15 @@ API ユーザには照会するホストグループの参照権限が必要。`
 これらの化石が当日の異常を埋もれさせないようにするための措置。セクション見出しには
 正確な総件数を表示し、取得が上限に達した場合は `showing N of TOTAL` と明示する
 （サイレントな切り捨てをしない）。
+
+### `daily_brief` のメンテナンス期間
+
+Active Problems の直後に、`daily_brief` は現在有効なメンテナンス期間、および
+本日これから始まるメンテナンス期間の対象ホストを一覧する。計画停止を他の
+ツールが検知した異常と誤認しないための材料。該当が無ければ `## In
+Maintenance` セクション自体を出さない（セクション無し＝メンテ無し）。明日以降
+に始まる窓や期限切れの窓はここには出ない ― 全体を見るには `get_maintenance_windows`
+（`include_expired=True` で期限切れも含む）を呼ぶこと。
 
 ### `daily_brief` のカテゴリ（任意）
 

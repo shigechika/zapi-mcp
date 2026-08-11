@@ -82,6 +82,12 @@ PROBES: dict[str, Probe] = {
             r"^Host '.*' not found\.",
         ),
     ),
+    # -- maintenance (read) -------------------------------------------------
+    # No maintenance scheduled is the normal state; assert the envelope.
+    "get_maintenance_windows": Probe(
+        must_match=(r"^Maintenance Windows \(\d+ active, \d+ upcoming\):|^No maintenance windows\.",),
+        must_not_match=(r"^(Zabbix error|Missing environment variable)",),
+    ),
     # -- morning patrol ----------------------------------------------------
     # The brief is a document, not a list: assert its frame (title + the one
     # section that is always emitted) rather than any particular finding.

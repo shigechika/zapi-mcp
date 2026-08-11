@@ -22,14 +22,23 @@ to guard against stdio newline regressions).
 
 ## Architecture
 
-- `zapi_mcp/server.py` — FastMCP server with 7 tools: `health_check`,
+- `zapi_mcp/server.py` — FastMCP server with 8 tools: `health_check`,
   `daily_brief`, `get_problems`, `get_hosts`, `get_host_items`,
   `acknowledge_problem`, `set_maintenance` (idempotent maintenance window,
   by `location` tag or by exact host name — exactly one of the two required;
   thin wrapper over `zapi_lib.ZapiClient.set_maintenance`/
   `set_maintenance_for_hosts`, which live on the base client, not just
   `ZapiProvisioner`, specifically so this MCP server's plain `ZapiClient`
-  can call them).
+  can call them), `get_maintenance_windows` (the read counterpart: lists
+  Active/Upcoming/Expired windows via `zapi_lib.ZapiClient.get_maintenances`,
+  classifying "active" against each window's own one-time time period, not
+  just its outer active_since/active_till frame — exact for windows
+  `set_maintenance` creates; a recurring time period falls back to the outer
+  frame and is labeled accordingly). `daily_brief` also gains an "In
+  Maintenance" section, independent of Active Problems, listing hosts
+  under an active window plus any starting later today — cross-check other
+  tools' findings against it before treating a planned outage as a new
+  incident.
 - `zapi_mcp/client.py` — backward-compatible re-export shim; the real
   `ZapiClient`/`ZapiError`/`tag_filter` now live in the separate `zapi-lib`
   package.
