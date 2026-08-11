@@ -93,11 +93,44 @@ by substring.
 
 ### `acknowledge_problem(event_ids, message)`
 
-**The only tool that writes** (besides `set_maintenance`). Acknowledges the
-given comma-separated event IDs and attaches a message. It does not close the
-problems. An acknowledgement is visible to every operator of that Zabbix and
-cannot be quietly undone, which is why the live smoke test skips this tool by
-name and a unit test enforces the skip.
+**One of the two tools that write** (the other is `set_maintenance`).
+Acknowledges the given comma-separated event IDs and attaches a message. It
+does not close the problems. An acknowledgement is visible to every operator
+of that Zabbix and cannot be quietly undone, which is why the live smoke
+test skips this tool by name and a unit test enforces the skip.
+
+### `set_maintenance(since, till, name, description, location=None, hosts=None)`
+
+**The other tool that writes.** Opens an idempotent Zabbix maintenance
+window that suppresses new problem notifications for the matched hosts
+during the window — unlike `acknowledge_problem`, which only marks existing
+problems as seen. `get_maintenance_windows` is its read counterpart.
+
+Select the target hosts with exactly one of `location` (the hosts'
+`location` tag) or `hosts` (comma-separated exact host names) — specifying
+both or neither is rejected before any Zabbix call. `since`/`till` are
+`"%Y/%m/%d %H:%M:%S"` strings parsed in the **MCP server process's own
+local timezone**, not a fixed zone — convert first if the server doesn't
+run where you mean.
+
+**Idempotency key is `name` + `since`, not the target.** Calling again with
+the same `name`/`since` under the same selection mode (location vs. hosts)
+always returns the *first* window created under that key, even if this
+call's target differs — no error, no new window. Pick a `name` that
+uniquely identifies the actual target whenever more than one maintenance
+window might be open around the same time:
+
+```text
+Maintenance window active for location='CIT' from 2026/08/10 11:00:00 to
+2026/08/10 17:00:00 (maintenance id(s): 42).
+```
+
+If the post-write confirmation read fails (session drop, unparsable
+`active_till`), the window itself is still real — the response falls back
+to the caller's own `till` and appends `(unconfirmed)` rather than
+reporting a failure for a write that already succeeded. Skipped by name in
+the live smoke test for the same reason as `acknowledge_problem`: it would
+open a real maintenance window and suppress real alerts.
 
 ### `get_maintenance_windows(include_expired=False)`
 
