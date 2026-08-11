@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.2](https://github.com/shigechika/zapi-mcp/compare/v0.9.1...v0.9.2) (2026-08-11)
+
+
+### Bug Fixes
+
+* add explicit workflow permissions to ci.yml and release.yml ([#66](https://github.com/shigechika/zapi-mcp/issues/66)) ([03e510c](https://github.com/shigechika/zapi-mcp/commit/03e510cd909e9f758be87b79c7d8f612c72b0230))
+
 ## [0.9.1](https://github.com/shigechika/zapi-mcp/compare/v0.9.0...v0.9.1) (2026-08-11)
 
 
