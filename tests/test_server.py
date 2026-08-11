@@ -1232,10 +1232,53 @@ def test_daily_brief_survives_maintenance_fetch_failure(monkeypatch):
     assert "boom" in text
     assert "No categories configured" in text  # brief continues past the failure
     assert had_error is True
-    # A stale/poisoned session must not be reused by the category loop that
-    # follows (regression: the original handler forgot reset_client() here,
-    # unlike every other except-ZapiError branch in this module).
-    assert server._CLIENT is None
+    # A poisoned session must not be reused by the category loop that
+    # follows: it's reset AND a fresh client is re-acquired (not left None --
+    # a bare reset_client() would leave the loop holding a closed httpx
+    # client via the still-referenced local `client` variable; see the
+    # dedicated re-acquisition test below).
+    assert server._CLIENT is not None
+
+
+def test_daily_brief_maintenance_failure_reacquires_client_for_categories(monkeypatch, tmp_path):
+    """After a maintenance.get failure, the category loop must get a fresh,
+    working client -- not the one reset_client() just closed. A bare
+    reset_client() there leaves the loop holding a dead httpx.Client, whose
+    next call raises RuntimeError (not ZapiError), uncaught by the loop's
+    except ZapiError, crashing the whole brief (regression for ai-review
+    R4F1 on PR#63)."""
+    p = tmp_path / "cats.ini"
+    p.write_text("[dhcp]\nname = DHCP Pool Usage\ntag = dhcp-pool-usage\nitem_key = usage\nthreshold = 80\n")
+    monkeypatch.setenv("ZABBIX_CATEGORIES_INI", str(p))
+
+    login_calls = {"count": 0}
+
+    def handler(request):
+        payload = json.loads(request.content)
+        m = payload["method"]
+        if m == "apiinfo.version":
+            return httpx.Response(200, json={"result": "6.0.0", "id": 1})
+        if m == "user.login":
+            login_calls["count"] += 1
+            return httpx.Response(200, json={"result": "tok", "id": 1})
+        if m == "maintenance.get":
+            return httpx.Response(200, json={"error": {"message": "boom"}, "id": 1})
+        if m == "problem.get":
+            return httpx.Response(200, json={"result": [], "id": 1})
+        if m == "host.get":
+            return httpx.Response(200, json={"result": [SAMPLE_HOST], "id": 1})
+        if m == "item.get":
+            return httpx.Response(200, json={"result": [SAMPLE_ITEM], "id": 1})
+        return httpx.Response(200, json={"result": [], "id": 1})
+
+    with respx.mock(assert_all_called=False) as router:
+        router.post(ENDPOINT).mock(side_effect=handler)
+        text, had_error = server._daily_brief_text()  # must not raise
+    assert "## In Maintenance\nError:" in text
+    assert "DHCP Pool Usage" in text  # category rendered -- proves the loop got a working client
+    assert "85.5" in text
+    assert had_error is True
+    assert login_calls["count"] == 2  # original login + reauth after reset_client()
 
 
 # ---- helpers --------------------------------------------------------------

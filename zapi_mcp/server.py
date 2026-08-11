@@ -444,11 +444,23 @@ def _daily_brief_text() -> tuple[str, bool]:
             for m, start in shown:
                 lines.append(_window_brief_line(m, upcoming_start=start))
     except ZapiError as e:
-        # Same reset-on-failure as the Active Problems handler above: a
-        # stale/dead session must not be reused by the category loop below.
-        reset_client()
         lines.append(f"\n## In Maintenance\nError: {e}")
         had_error = True
+        # Unlike the Active Problems handler above (which returns immediately
+        # after reset_client()), execution continues into the category loop
+        # below using this same `client` variable -- reset_client() closes
+        # the httpx client it points to, so a bare reset here would hand the
+        # loop a dead connection (a non-ZapiError RuntimeError on the very
+        # next call, uncaught by the loop's `except ZapiError`, crashing the
+        # whole brief -- worse than the failure being handled). Re-acquire a
+        # fresh, reauthenticated client for the loop to use instead; if that
+        # itself fails, there's no usable client left, so stop here rather
+        # than hand the loop something broken (/code-review R4F1).
+        reset_client()
+        try:
+            client = _client()
+        except (KeyError, ZapiError):
+            return "\n".join(lines), True
 
     # Per-category sections
     categories, categories_error = _load_categories_safe()
