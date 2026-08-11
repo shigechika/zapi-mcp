@@ -451,6 +451,72 @@ def test_window_state_recurring_period_uses_outer_frame():
     assert server._window_state(w, now) == ("active", True)
 
 
+def test_window_state_gap_between_two_one_time_periods_is_upcoming_not_expired():
+    # One period already ended, a second hasn't started yet, "now" sits in
+    # the gap between them -- must report the still-upcoming period, not
+    # "expired" just because an earlier period is done (regression for
+    # ai-review R1F1 on PR#63).
+    now = 1_000_000
+    w = {
+        "active_since": str(now - 10_000),
+        "active_till": str(now + 10_000),
+        "timeperiods": [
+            {"timeperiod_type": "0", "start_date": str(now - 2000), "period": "500"},  # already ended
+            {"timeperiod_type": "0", "start_date": str(now + 2000), "period": "500"},  # still to come
+        ],
+    }
+    assert server._window_state(w, now) == ("upcoming", False)
+
+
+def test_window_state_all_one_time_periods_ended_is_expired():
+    now = 1_000_000
+    w = {
+        "active_since": str(now - 10_000),
+        "active_till": str(now + 10_000),
+        "timeperiods": [
+            {"timeperiod_type": "0", "start_date": str(now - 3000), "period": "500"},
+            {"timeperiod_type": "0", "start_date": str(now - 2000), "period": "500"},
+        ],
+    }
+    assert server._window_state(w, now) == ("expired", False)
+
+
+# ---- _window_upcoming_start (pure logic) -----------------------------------
+
+
+def test_window_upcoming_start_before_outer_frame_opens():
+    now = 1_000_000
+    w = {"active_since": str(now + 500), "active_till": str(now + 1500), "timeperiods": []}
+    assert server._window_upcoming_start(w, now) == now + 500
+
+
+def test_window_upcoming_start_uses_period_start_not_active_since():
+    # Outer frame already opened (active_since is in the past), but the
+    # window's own one-time period doesn't start until later -- the "starts
+    # today" check must use that later moment, not active_since (regression
+    # for ai-review R1F2 on PR#63).
+    now = 1_000_000
+    w = {
+        "active_since": str(now - 100_000),
+        "active_till": str(now + 100_000),
+        "timeperiods": [{"timeperiod_type": "0", "start_date": str(now + 3600), "period": "600"}],
+    }
+    assert server._window_upcoming_start(w, now) == now + 3600
+
+
+def test_window_upcoming_start_picks_earliest_future_period():
+    now = 1_000_000
+    w = {
+        "active_since": str(now - 100_000),
+        "active_till": str(now + 100_000),
+        "timeperiods": [
+            {"timeperiod_type": "0", "start_date": str(now + 7200), "period": "600"},
+            {"timeperiod_type": "0", "start_date": str(now + 3600), "period": "600"},
+        ],
+    }
+    assert server._window_upcoming_start(w, now) == now + 3600
+
+
 # ---- _window_hosts / _fmt_window_hosts (pure formatting) -------------------
 
 
@@ -459,16 +525,32 @@ def test_window_hosts_reads_groups_or_hostgroups_key():
     # the selected host-group data -- a group-only window must not read blank
     # just because the caller's Zabbix generation used the other key.
     pre_64 = {"hosts": [], "groups": [{"groupid": "1", "name": "Group A"}]}
-    assert server._window_hosts(pre_64) == ["group:Group A"]
+    assert server._window_hosts(pre_64) == ([], ["Group A"])
     post_64 = {"hosts": [], "hostgroups": [{"groupid": "1", "name": "Group A"}]}
-    assert server._window_hosts(post_64) == ["group:Group A"]
+    assert server._window_hosts(post_64) == ([], ["Group A"])
+
+
+def test_window_hosts_separates_hosts_from_groups():
+    m = {
+        "hosts": [{"hostid": "1", "host": "host-a"}],
+        "hostgroups": [{"groupid": "1", "name": "Routers"}],
+    }
+    assert server._window_hosts(m) == (["host-a"], ["Routers"])
 
 
 def test_fmt_window_hosts_truncates_and_pluralizes():
-    assert server._fmt_window_hosts([], 8) == "no hosts"
-    assert server._fmt_window_hosts(["a"], 8) == "1 host: a"
+    assert server._fmt_window_hosts([], [], 8) == "no hosts"
+    assert server._fmt_window_hosts(["a"], [], 8) == "1 host: a"
     names = [f"h{i}" for i in range(10)]
-    assert server._fmt_window_hosts(names, 8) == "10 hosts: h0, h1, h2, h3, h4, h5, h6, h7, … and 2 more"
+    assert server._fmt_window_hosts(names, [], 8) == "10 hosts: h0, h1, h2, h3, h4, h5, h6, h7, … and 2 more"
+
+
+def test_fmt_window_hosts_reports_groups_separately_not_as_a_host():
+    # A host-group-only window must not be reported as "1 host: group:X" --
+    # the group's member count isn't known here, so it's a group, not a host
+    # (regression for ai-review R1F3 on PR#63).
+    assert server._fmt_window_hosts([], ["Routers"], 8) == "1 group: Routers"
+    assert server._fmt_window_hosts(["host-a"], ["Routers"], 8) == "1 host: host-a; 1 group: Routers"
 
 
 # ---- get_maintenance_windows ------------------------------------------------
@@ -596,6 +678,47 @@ def test_get_maintenance_windows_calls_maintenance_get_once():
         _call(server.get_maintenance_windows)()
     calls = [x for x in r.captured if x["payload"]["method"] == "maintenance.get"]
     assert len(calls) == 1
+
+
+@freeze_time(FROZEN_NOW)
+def test_get_maintenance_windows_period_gap_shows_as_upcoming():
+    # End-to-end check for the R1F1 fix: a window between two one-time
+    # periods must appear under Upcoming, not be silently dropped as expired.
+    now = _frozen_now_ts()
+    w = {
+        "maintenanceid": "8",
+        "name": "MW-8",
+        "active_since": str(now - 10_000),
+        "active_till": str(now + 10_000),
+        "maintenance_type": "0",
+        "description": "",
+        "hosts": [{"hostid": "1", "host": "host-a", "name": "Host A"}],
+        "timeperiods": [
+            {"timeperiod_type": "0", "start_date": str(now - 2000), "period": "500"},
+            {"timeperiod_type": "0", "start_date": str(now + 2000), "period": "500"},
+        ],
+        "tags": [],
+    }
+    with make_router(results={"maintenance.get": [w]}):
+        out = _call(server.get_maintenance_windows)()
+    assert "Maintenance Windows (0 active, 1 upcoming):" in out
+    assert "## Upcoming" in out
+    assert "MW-8" in out
+
+
+def test_get_maintenance_windows_host_group_reported_as_group_not_host():
+    w = _one_time_window(
+        maintenanceid="9",
+        name="MW-9",
+        since_offset=-60,
+        till_offset=60,
+        hosts=[],
+    )
+    w["hostgroups"] = [{"groupid": "1", "name": "Routers"}]
+    with make_router(results={"maintenance.get": [w]}):
+        out = _call(server.get_maintenance_windows)()
+    assert "1 group: Routers" in out
+    assert "1 host:" not in out
 
 
 # ---- health_check ---------------------------------------------------------
@@ -950,6 +1073,31 @@ def test_daily_brief_shows_todays_upcoming_maintenance(monkeypatch):
         out = _call(server.daily_brief)()
     assert "## In Maintenance (1 window)" in out
     assert "Starting today: MW-3" in out
+
+
+@freeze_time(FROZEN_NOW)
+def test_daily_brief_uses_period_start_not_outer_frame_for_todays_check(monkeypatch):
+    # The outer frame opened yesterday, but the window's own one-time period
+    # doesn't start until later today -- the brief must key off that actual
+    # start (regression for ai-review R1F2 on PR#63; a naive active_since
+    # check would both miss this case and, in the mirror scenario, wrongly
+    # label a window "starting today" when only its outer frame does).
+    now = _frozen_now_ts()
+    w = {
+        "maintenanceid": "10",
+        "name": "MW-10",
+        "active_since": str(now - 86_400),  # opened yesterday
+        "active_till": str(now + 86_400),
+        "maintenance_type": "0",
+        "description": "",
+        "hosts": [{"hostid": "1", "host": "host-a", "name": "Host A"}],
+        "timeperiods": [{"timeperiod_type": "0", "start_date": str(now + 3600), "period": "600"}],
+        "tags": [],
+    }
+    with make_router(results={"problem.get": [], "maintenance.get": [w]}):
+        out = _call(server.daily_brief)()
+    assert "## In Maintenance (1 window)" in out
+    assert "Starting today: MW-10" in out
 
 
 @freeze_time(FROZEN_NOW)

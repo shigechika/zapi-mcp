@@ -419,20 +419,24 @@ def _daily_brief_text() -> tuple[str, bool]:
     # check against). Independent try -- unlike Active Problems above, a
     # failure here doesn't abort the rest of the brief.
     try:
-        shown: list[tuple[dict, bool]] = []
+        # Second element: the effective start epoch when the window is
+        # upcoming (see _window_upcoming_start -- NOT active_since), None
+        # when it's already active. Used both for "does this start today"
+        # and for sorting/display, so the two can't disagree.
+        shown: list[tuple[dict, int | None]] = []
         for m in client.get_maintenances():
             state, _ = _window_state(m, now_ts)
             if state == "active":
-                shown.append((m, False))
+                shown.append((m, None))
             elif state == "upcoming":
-                since = _epoch(m.get("active_since"))
-                if since is not None and datetime.fromtimestamp(since).astimezone().date() == now_dt.date():
-                    shown.append((m, True))
+                start = _window_upcoming_start(m, now_ts)
+                if start is not None and datetime.fromtimestamp(start).astimezone().date() == now_dt.date():
+                    shown.append((m, start))
         if shown:
-            shown.sort(key=lambda pair: pair[0].get("active_since", ""))
+            shown.sort(key=lambda pair: pair[1] if pair[1] is not None else (_epoch(pair[0].get("active_since")) or 0))
             lines.append(f"\n## In Maintenance ({len(shown)} window{'s' if len(shown) != 1 else ''})")
-            for m, is_upcoming in shown:
-                lines.append(_window_brief_line(m, upcoming=is_upcoming))
+            for m, start in shown:
+                lines.append(_window_brief_line(m, upcoming_start=start))
     except ZapiError as e:
         lines.append(f"\n## In Maintenance\nError: {e}")
         had_error = True
@@ -772,6 +776,23 @@ def _epoch(value: object) -> int | None:
         return None
 
 
+def _one_time_spans(periods: list[dict], since: int, till: int) -> list[tuple[int, int]]:
+    """[start, end] spans for one-time periods, clipped to the outer frame.
+
+    Shared by _window_state (classification) and _window_upcoming_start (the
+    brief's "does this start today" check) so the two can never disagree
+    about what a window's actual time period spans are.
+    """
+    spans = []
+    for p in periods:
+        start = _epoch(p.get("start_date"))
+        length = _epoch(p.get("period"))
+        if start is None or length is None:
+            continue
+        spans.append((max(start, since), min(start + length, till)))
+    return spans
+
+
 def _window_state(m: dict, now_ts: int) -> tuple[str, bool]:
     """Classify a maintenance window as 'active', 'upcoming', or 'expired'.
 
@@ -779,12 +800,15 @@ def _window_state(m: dict, now_ts: int) -> tuple[str, bool]:
     own [start_date, start_date + period] span, clipped to the outer
     [active_since, active_till] frame -- this is exact for windows created by
     set_maintenance/set_maintenance_for_hosts, which always emit a single
-    one-time period matching the outer frame exactly. A window with any
-    recurring period (daily/weekly/monthly -- only possible via the Zabbix UI
-    or another API caller, never via set_maintenance) can't be evaluated
-    without a full recurrence engine, so it falls back to the outer frame and
-    is flagged `recurring=True` so callers can label it honestly instead of
-    claiming precision the classification doesn't have.
+    one-time period matching the outer frame exactly. Multiple one-time
+    periods are each checked independently, so a window that's between two
+    periods (one already past, one still to come) reports 'upcoming', not
+    'expired' -- expired only when every period has already ended. A window
+    with any recurring period (daily/weekly/monthly -- only possible via the
+    Zabbix UI or another API caller, never via set_maintenance) can't be
+    evaluated without a full recurrence engine, so it falls back to the outer
+    frame and is flagged `recurring=True` so callers can label it honestly
+    instead of claiming precision the classification doesn't have.
 
     Returns (state, recurring).
     """
@@ -806,43 +830,79 @@ def _window_state(m: dict, now_ts: int) -> tuple[str, bool]:
         # than crash on it.
         return "active", False
 
-    spans = []
-    for p in periods:
-        start = _epoch(p.get("start_date"))
-        length = _epoch(p.get("period"))
-        if start is None or length is None:
-            continue
-        spans.append((max(start, since), min(start + length, till)))
+    spans = _one_time_spans(periods, since, till)
     if not spans:
         return "active", False
     if any(start <= now_ts <= end for start, end in spans):
         return "active", False
-    if all(now_ts < start for start, _ in spans):
+    if any(now_ts < start for start, _ in spans):
         return "upcoming", False
     return "expired", False
 
 
-def _window_hosts(m: dict) -> list[str]:
-    """Host and host-group labels for a window (group-only windows aren't blank).
+def _window_upcoming_start(m: dict, now_ts: int) -> int | None:
+    """Epoch a currently-'upcoming' window will actually start being active.
 
+    NOT the same as active_since: a one-time period can start later than the
+    outer frame opens (e.g. the frame opened yesterday but the period itself
+    starts later today), and _window_state already treats that as 'upcoming'
+    -- this returns the moment that matters for a "does this start today"
+    check. None only when active_since itself is unparseable (the window
+    would already have been classified 'expired' by _window_state, so this
+    should not be called in that case).
+    """
+    since = _epoch(m.get("active_since"))
+    till = _epoch(m.get("active_till"))
+    if since is None:
+        return None
+    if now_ts < since or till is None:
+        # Outer frame hasn't opened yet -- nothing can start earlier than that.
+        return since
+    periods = m.get("timeperiods") or []
+    if any(p.get("timeperiod_type") != _ONE_TIME_PERIOD for p in periods) or not periods:
+        return since
+    future_starts = [start for start, _ in _one_time_spans(periods, since, till) if now_ts < start]
+    return min(future_starts) if future_starts else since
+
+
+def _window_hosts(m: dict) -> tuple[list[str], list[str]]:
+    """(host names, host-group names) a window covers.
+
+    Kept separate rather than merged into one list: a host group is not the
+    same unit as a host (its member count isn't in this API response, so
+    folding "group:X" into a host list either mislabels the count or hides
+    that group membership isn't resolved -- see _fmt_window_hosts).
     ``get_maintenances()`` returns ``"groups"`` on Zabbix < 6.4 and
     ``"hostgroups"`` on >= 6.4 for the selected host-group data; check both.
     """
-    names = [h.get("host", "?") for h in (m.get("hosts") or [])]
+    hosts = [h.get("host", "?") for h in (m.get("hosts") or [])]
     groups = m.get("hostgroups") if m.get("hostgroups") is not None else m.get("groups")
-    names.extend(f"group:{g.get('name', '?')}" for g in (groups or []))
-    return names
+    group_names = [g.get("name", "?") for g in (groups or [])]
+    return hosts, group_names
 
 
-def _fmt_window_hosts(names: list[str], limit: int) -> str:
-    """'N hosts: a, b, … and K more', truncated to `limit` names shown."""
-    if not names:
+def _fmt_window_hosts(hosts: list[str], groups: list[str], limit: int) -> str:
+    """'N hosts: a, b, … and K more' plus 'M groups: X, Y' when the window
+    also targets whole host groups -- group membership isn't resolved here
+    (would need an extra host.get per group), so a group is reported as a
+    group, never silently counted as if it were one host.
+    """
+    parts = []
+    if hosts:
+        label = "host" if len(hosts) == 1 else "hosts"
+        shown = ", ".join(hosts[:limit])
+        if len(hosts) > limit:
+            shown += f", … and {len(hosts) - limit} more"
+        parts.append(f"{len(hosts)} {label}: {shown}")
+    if groups:
+        label = "group" if len(groups) == 1 else "groups"
+        shown = ", ".join(groups[:limit])
+        if len(groups) > limit:
+            shown += f", … and {len(groups) - limit} more"
+        parts.append(f"{len(groups)} {label}: {shown}")
+    if not parts:
         return "no hosts"
-    label = "host" if len(names) == 1 else "hosts"
-    shown = ", ".join(names[:limit])
-    if len(names) > limit:
-        shown += f", … and {len(names) - limit} more"
-    return f"{len(names)} {label}: {shown}"
+    return "; ".join(parts)
 
 
 def _window_header(m: dict) -> str:
@@ -865,17 +925,25 @@ def _window_block(m: dict, host_limit: int) -> list[str]:
     description = (m.get("description") or "").strip()
     if description:
         block.append(f"  {description}")
-    block.append(f"  {_fmt_window_hosts(_window_hosts(m), host_limit)}")
+    hosts, groups = _window_hosts(m)
+    block.append(f"  {_fmt_window_hosts(hosts, groups, host_limit)}")
     return block
 
 
-def _window_brief_line(m: dict, *, upcoming: bool) -> str:
-    """Single-line display for one window (daily_brief's In Maintenance section)."""
+def _window_brief_line(m: dict, *, upcoming_start: int | None) -> str:
+    """Single-line display for one window (daily_brief's In Maintenance section).
+
+    `upcoming_start` is the window's actual effective start epoch (see
+    _window_upcoming_start) when it hasn't started yet, None when it's
+    already active -- deliberately NOT the window's outer active_since,
+    which can predate the moment the window itself actually starts.
+    """
     name = m.get("name", "?")
     till = _fmt_time(m.get("active_till"))
-    hosts_str = _fmt_window_hosts(_window_hosts(m), MAINT_BRIEF_HOST_DISPLAY_LIMIT)
-    if upcoming:
-        since = _fmt_time(m.get("active_since"))
+    hosts, groups = _window_hosts(m)
+    hosts_str = _fmt_window_hosts(hosts, groups, MAINT_BRIEF_HOST_DISPLAY_LIMIT)
+    if upcoming_start is not None:
+        since = _fmt_time(upcoming_start)
         return f"- Starting today: {name}  {since} → {till}  ({hosts_str})"
     return f"- {name}  until {till}  ({hosts_str})"
 
