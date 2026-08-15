@@ -19,8 +19,14 @@ uv sync          # または: pip install -e .
 ## Zabbix アカウント
 
 API ユーザーには**照会対象のホストグループへの読み取り権限**が必要です。
-`acknowledge_problem` を使う場合は acknowledge 権限も要ります。それ以外は不要で、
-スーパー管理者ロールも設定への書き込み権限も必要ありません。
+`acknowledge_problem` を使う場合は acknowledge 権限も、`set_maintenance` を
+使う場合はメンテナンス書き込み権限も要ります。それ以外は不要で、スーパー
+管理者ロールも他の書き込み権限も必要ありません。
+
+どちらかの権限を付けなければ、そのツールだけが Zabbix API 呼び出しで失敗し、
+残りのツールはそのまま動きます ― 各ツールが実際に呼ぶ API は
+[リファレンス](reference.ja.md)の `acknowledge_problem` / `set_maintenance`
+の項を参照してください。
 
 個人のアカウントを流用せず API 専用ユーザーを作ると、監査ログが読みやすくなり、
 その人が異動・退職しても動き続けます。
@@ -46,7 +52,24 @@ API ユーザーには**照会対象のホストグループへの読み取り�
 
 ## MCP クライアントへの登録
 
-### Claude Code
+### Claude Code（プラグイン）
+
+このリポジトリはプラグイン 1 個のマーケットプレイスも兼ねています。
+
+```
+/plugin marketplace add shigechika/zapi-mcp
+/plugin install zapi-mcp@zapi-mcp
+```
+
+プラグインは `uvx zapi-mcp` を起動し、上記の環境変数と同じものを読みます。
+Claude Code を起動する前に export しておいてください。
+
+プラグインは `uvx` を起動するため、Claude Code を実行するプロセスの `PATH` に
+`uvx` が通っている必要があります。ログインシェルなら通常問題ありませんが、
+GUI から起動した場合は通っていないことがあります。プラグインが起動しない場合は
+[uv](https://docs.astral.sh/uv/) をシステム全体にインストールしてください。
+
+### Claude Code（手動）
 
 `.mcp.json`:
 

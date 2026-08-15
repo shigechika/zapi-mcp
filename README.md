@@ -135,9 +135,44 @@ tag_value = main
 See [`categories.ini.example`](categories.ini.example). When the variable is
 unset or the file is missing, `daily_brief` reports active problems only.
 
+### Write operations
+
+Two tools change state. Everything else only reads.
+
+| Tool | Zabbix API call |
+|---|---|
+| `acknowledge_problem` | `event.acknowledge` |
+| `set_maintenance` | `maintenance.create` |
+
+`acknowledge_problem` needs acknowledge permission on the API user;
+`set_maintenance` needs maintenance-write permission. **Leave either off and
+the server stays read-only for that one tool**: the call fails against the
+Zabbix API and every other tool keeps working, so an API user can be handed
+to Claude for investigation without granting it any ability to change Zabbix
+configuration. Grant the permission only when acknowledging alerts or opening
+maintenance windows from Claude is part of the job.
+
 ## Usage
 
-### Claude Code
+### Claude Code (plugin)
+
+This repository doubles as a single-plugin marketplace, so Claude Code can
+install the server for you:
+
+```
+/plugin marketplace add shigechika/zapi-mcp
+/plugin install zapi-mcp@zapi-mcp
+```
+
+The plugin launches `uvx zapi-mcp` and reads the same environment variables
+described in [Configuration](#configuration); export them before starting
+Claude Code. `ZABBIX_CATEGORIES_INI` may stay unset.
+
+`uvx` must be on the `PATH` of the process that runs Claude Code — a login
+shell usually has it, but a GUI-launched app may not; install
+[uv](https://docs.astral.sh/uv/) system-wide if the plugin fails to start.
+
+### Claude Code (manual)
 
 Add to `.mcp.json`:
 

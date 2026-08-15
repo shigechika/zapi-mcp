@@ -1,0 +1,17 @@
+{
+  "name": "zapi-mcp",
+  "description": "Zabbix MCP server, packaged as a Claude Code plugin.",
+  "owner": {
+    "name": "AIKAWA Shigechika",
+    "url": "https://github.com/shigechika"
+  },
+  "plugins": [
+    {
+      "name": "zapi-mcp",
+      "source": "./plugin",
+      "description": "Zabbix API for Claude Code, via an API user. Investigate active problems, hosts, and item values, get a one-shot daily_brief health check, acknowledge problems, and open maintenance windows.",
+      "category": "monitoring",
+      "homepage": "https://shigechika.github.io/zapi-mcp/"
+    }
+  ]
+}
