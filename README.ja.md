@@ -130,9 +130,44 @@ tag_value = main
 [`categories.ini.example`](categories.ini.example) を参照。環境変数が未設定、
 またはファイルが無い場合はアクティブな問題のみを報告する。
 
+### 書き込みツール
+
+状態を変えるのは次の2つだけ。ほかはすべて読み取り。
+
+| ツール | Zabbix API |
+|---|---|
+| `acknowledge_problem` | `event.acknowledge` |
+| `set_maintenance` | `maintenance.create` |
+
+`acknowledge_problem` には API ユーザーの acknowledge 権限、`set_maintenance`
+にはメンテナンス書き込み権限が要る。**どちらか一方を付けなければ、その
+ツールだけが読み取り専用のまま**になる ― Zabbix API 呼び出しが失敗するだけで
+残りのツールはそのまま動くので、Zabbix の設定を変える権限を一切与えずに
+調査だけを Claude に任せられる。アラートの acknowledge やメンテナンス
+ウィンドウの作成を Claude にやらせたい場合にだけ権限を付与すること。
+
 ## 使い方
 
-### Claude Code
+### Claude Code（プラグイン）
+
+このリポジトリはプラグイン 1 個のマーケットプレイスも兼ねているので、
+Claude Code からそのまま導入できます。
+
+```
+/plugin marketplace add shigechika/zapi-mcp
+/plugin install zapi-mcp@zapi-mcp
+```
+
+プラグインは `uvx zapi-mcp` を起動し、[設定](#設定)と同じ環境変数を読みます。
+Claude Code を起動する前に export しておいてください。`ZABBIX_CATEGORIES_INI`
+は未設定のままで構いません。
+
+プラグインは `uvx` を起動するため、Claude Code を実行するプロセスの `PATH` に
+`uvx` が通っている必要があります。ログインシェルなら通常問題ありませんが、
+GUI から起動した場合は通っていないことがあります。プラグインが起動しない場合は
+[uv](https://docs.astral.sh/uv/) をシステム全体にインストールしてください。
+
+### Claude Code（手動）
 
 `.mcp.json` に追加:
 

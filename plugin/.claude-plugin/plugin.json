@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "zapi-mcp",
+  "displayName": "Zabbix MCP",
+  "description": "Zabbix API for Claude Code, via an API user. Investigate active problems, hosts, and item values, get a one-shot daily_brief health check, acknowledge problems, and open maintenance windows. Site-specific daily_brief categories (DHCP pool usage, SNAT usage, core-network, …) need a local ZABBIX_CATEGORIES_INI file that this plugin's own settings cannot supply on someone else's machine; without it daily_brief still works with just the built-in Active Problems / In Maintenance sections. Requires ZABBIX_URL, ZABBIX_USER, and ZABBIX_PASSWORD.",
+  "author": {
+    "name": "AIKAWA Shigechika",
+    "url": "https://github.com/shigechika"
+  },
+  "homepage": "https://shigechika.github.io/zapi-mcp/",
+  "repository": "https://github.com/shigechika/zapi-mcp",
+  "license": "MIT",
+  "keywords": [
+    "zabbix",
+    "monitoring",
+    "observability",
+    "network",
+    "incident-response",
+    "maintenance",
+    "sre"
+  ]
+}

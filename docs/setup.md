@@ -19,8 +19,15 @@ uv sync          # or: pip install -e .
 ## Zabbix account
 
 The API user needs **read permission on the host groups you query**, plus
-acknowledge permission if you intend to use `acknowledge_problem`. Nothing else
-is required — no super-admin role, no write access to configuration.
+acknowledge permission if you intend to use `acknowledge_problem` and
+maintenance-write permission if you intend to use `set_maintenance`. Nothing
+else is required — no super-admin role, no other write access to
+configuration.
+
+Leave either permission off and that one tool fails against the Zabbix API
+while every other tool keeps working — see the `acknowledge_problem` and
+`set_maintenance` entries in the [Reference](reference.md#tools) for the
+exact API call each one makes.
 
 Creating a dedicated API user rather than reusing a person's account keeps the
 audit trail readable and survives that person leaving.
@@ -46,7 +53,24 @@ audit trail readable and survives that person leaving.
 
 ## Register with an MCP client
 
-### Claude Code
+### Claude Code (plugin)
+
+This repository doubles as a single-plugin marketplace:
+
+```
+/plugin marketplace add shigechika/zapi-mcp
+/plugin install zapi-mcp@zapi-mcp
+```
+
+The plugin launches `uvx zapi-mcp` and reads the same [environment
+variables](#environment-variables) as every other transport; export them
+before starting Claude Code.
+
+`uvx` must be on the `PATH` of the process that runs Claude Code — a login
+shell usually has it, but a GUI-launched app may not; install
+[uv](https://docs.astral.sh/uv/) system-wide if the plugin fails to start.
+
+### Claude Code (manual)
 
 `.mcp.json`:
 
