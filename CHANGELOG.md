@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/shigechika/zapi-mcp/compare/v0.9.2...v0.10.0) (2026-08-15)
+
+
+### Features
+
+* package the server as a Claude Code plugin ([#72](https://github.com/shigechika/zapi-mcp/issues/72)) ([97d55f0](https://github.com/shigechika/zapi-mcp/commit/97d55f0e048c7e132a41132166f8354c25b59469))
+
 ## [0.9.2](https://github.com/shigechika/zapi-mcp/compare/v0.9.1...v0.9.2) (2026-08-11)
 
 
