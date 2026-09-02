@@ -27,7 +27,7 @@ classifiers = [
 # get_maintenance_windows and the daily_brief In Maintenance section need.
 dependencies = [
     "zapi-lib>=0.6.0,<1",
-    "mcp>=1.2,<2",
+    "mcp>=1.2,<3",
 ]
 
 [project.scripts]
