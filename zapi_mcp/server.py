@@ -95,6 +95,15 @@ def _fmt_tags(tags: list[dict]) -> str:
     return ", ".join(f"{t['tag']}={t['value']}" if t.get("value") else t["tag"] for t in tags)
 
 
+def _fmt_hosts(problem: dict) -> str:
+    """Comma-joined host names, e.g. from problem['hosts'] (a problem's trigger can span hosts).
+
+    Empty when the underlying zapi-lib version doesn't request selectHosts yet
+    (older pin), so callers must not assume this is always populated.
+    """
+    return ", ".join(h["host"] for h in problem.get("hosts", []) if h.get("host"))
+
+
 def _is_acked(problem: dict) -> bool:
     """True when the problem's `acknowledged` boolean field is set."""
     return str(problem.get("acknowledged", "0")) == "1"
@@ -183,13 +192,15 @@ def _count_fragment(shown: int, total: int) -> str:
 
 
 def _problem_line(problem: dict, now_ts: int, *, with_severity: bool = False) -> str:
-    """One problem row: name, optional severity, eventid, onset time and age."""
+    """One problem row: name, optional severity, host(s), eventid, onset time and age."""
     ack = " [ack]" if _is_acked(problem) else ""
     sev = f"[{_severity_name(problem['severity'])}] " if with_severity else ""
     clock = _clock(problem)
+    host = _fmt_hosts(problem)
+    host_frag = f"host={host}  " if host else ""
     return (
         f"- {sev}{problem['name']}{ack}  "
-        f"eventid={problem.get('eventid', '?')}  ({_fmt_time(clock)}, {_fmt_age(clock, now_ts)})"
+        f"{host_frag}eventid={problem.get('eventid', '?')}  ({_fmt_time(clock)}, {_fmt_age(clock, now_ts)})"
     )
 
 
