@@ -38,6 +38,20 @@ def test_get_problems_lists_eventid_for_acknowledgement():
     assert "role=main" in out
 
 
+def test_get_problems_lists_host_name():
+    with make_router(results={"problem.get": [SAMPLE_PROBLEM]}):
+        out = _call(server.get_problems)()
+    assert "host=core-rt1" in out
+
+
+def test_get_problems_omits_host_fragment_when_hosts_missing():
+    """Older zapi-lib pins that don't request selectHosts return no `hosts` key."""
+    no_hosts = {k: v for k, v in SAMPLE_PROBLEM.items() if k != "hosts"}
+    with make_router(results={"problem.get": [no_hosts]}):
+        out = _call(server.get_problems)()
+    assert "host=" not in out
+
+
 def test_get_problems_empty():
     with make_router(results={"problem.get": []}):
         out = _call(server.get_problems)()
