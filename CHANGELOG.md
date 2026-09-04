@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/shigechika/zapi-mcp/compare/v0.10.0...v0.11.0) (2026-09-04)
+
+
+### Features
+
+* **server:** show host name in get_problems/daily_brief problem lines ([#78](https://github.com/shigechika/zapi-mcp/issues/78)) ([8ecab50](https://github.com/shigechika/zapi-mcp/commit/8ecab50ecbab88dab2948bf964f31d96067a8fba))
+
 ## [0.10.0](https://github.com/shigechika/zapi-mcp/compare/v0.9.2...v0.10.0) (2026-08-15)
 
 
