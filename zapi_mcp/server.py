@@ -4,12 +4,13 @@ import configparser
 import os
 from datetime import datetime
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
+from zapi_mcp import __version__
 from zapi_mcp.categories import Category, load_categories
 from zapi_mcp.client import ZapiClient, ZapiError, tag_filter
 
-mcp = FastMCP("zapi-mcp")
+mcp = MCPServer("zapi-mcp", version=__version__)
 
 _SEVERITY = {
     0: "Not classified",
@@ -342,7 +343,6 @@ def health_check() -> dict:
     error result, ``detail`` carries the reason and ``categories_error`` the
     category-parse failure (when that is the cause).
     """
-    from zapi_mcp import __version__
 
     # Fixed shape: every key is present regardless of outcome, so callers can
     # read it uniformly and rely on `status` to judge health.
