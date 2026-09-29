@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/shigechika/zapi-mcp/compare/v0.11.0...v0.12.0) (2026-09-29)
+
+
+### Features
+
+* require mcp 2.x (MCPServer) and drop 1.x support ([#82](https://github.com/shigechika/zapi-mcp/issues/82)) ([0702088](https://github.com/shigechika/zapi-mcp/commit/07020880d4199fa164fe4ba86c90111c8ed96200))
+
 ## [0.11.0](https://github.com/shigechika/zapi-mcp/compare/v0.10.0...v0.11.0) (2026-09-04)
 
 
