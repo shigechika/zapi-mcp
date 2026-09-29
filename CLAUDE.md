@@ -5,7 +5,7 @@
 MCP (Model Context Protocol) server for the Zabbix API. Exposes a
 `daily_brief` morning-patrol summary plus problem/host/item query and
 acknowledgement tools to AI assistants via STDIO transport, built on the
-official `mcp` Python SDK's `FastMCP`.
+official `mcp` Python SDK's `MCPServer`.
 
 ## Commands
 
@@ -22,7 +22,7 @@ to guard against stdio newline regressions).
 
 ## Architecture
 
-- `zapi_mcp/server.py` — FastMCP server with 8 tools: `health_check`,
+- `zapi_mcp/server.py` — MCPServer server with 8 tools: `health_check`,
   `daily_brief`, `get_problems`, `get_hosts`, `get_host_items`,
   `acknowledge_problem`, `set_maintenance` (idempotent maintenance window,
   by `location` tag or by exact host name — exactly one of the two required;

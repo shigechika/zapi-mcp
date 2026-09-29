@@ -3,7 +3,7 @@
 `zapi-mcp` is an MCP (Model Context Protocol) server exposing the Zabbix API
 (active problems, hosts, item values, a `daily_brief` morning-patrol
 summary) to AI assistants over **stdio transport**. Built on the official
-`mcp` Python SDK's `FastMCP` (`zapi_mcp/server.py`). The actual Zabbix HTTP
+`mcp` Python SDK's `MCPServer` (`zapi_mcp/server.py`). The actual Zabbix HTTP
 client (`ZapiClient`, auth, pagination) lives in the separate `zapi-lib`
 package; `zapi_mcp/client.py` is only a backward-compatible re-export shim.
 
@@ -41,11 +41,11 @@ concurrently with the live stdio server. Flag any new code path that adds a
 execute while `mcp.run()` is active — that would be a new failure mode, not a
 fix to an existing one.
 
-## 2. FastMCP already wraps tool returns — don't ask for manual envelope code
+## 2. MCPServer already wraps tool returns — don't ask for manual envelope code
 
 `server.py`'s `@mcp.tool()`-decorated functions return plain `str`/`dict`
 values (e.g. `daily_brief` returns `str`, `health_check` returns `dict`);
-FastMCP handles the MCP content-envelope wrapping itself. Do **not** suggest
+MCPServer handles the MCP content-envelope wrapping itself. Do **not** suggest
 a tool handler manually construct `{"content": [...], "isError": ...}` —
 that pattern is relevant to hand-rolled stdio servers elsewhere in this
 repo's family, not here.

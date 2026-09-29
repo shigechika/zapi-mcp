@@ -70,7 +70,7 @@ reviewer also receives.
 - Anything about `zapi-lib`. The Zabbix HTTP client, auth and
   pagination live in their own repository and are reviewed there.
 - Suggestions to hand-build an MCP content envelope
-  (`{"content": [...], "isError": ...}`) inside a tool handler. FastMCP
+  (`{"content": [...], "isError": ...}`) inside a tool handler. MCPServer
   wraps returned values already.
 - A finding that does nothing but restate one of the two gates CI
   already enforces: `ruff check .` and `ruff format --check .` both gate this
