@@ -36,12 +36,19 @@ API ユーザーには**照会対象のホストグループへの読み取り�
 | 変数 | 説明 | 既定 |
 |---|---|---|
 | `ZABBIX_URL` | Zabbix のベース URL（例 `https://zabbix.example.com`）。`/api_jsonrpc.php` は無ければ補われる | *必須* |
-| `ZABBIX_USER` | Zabbix API ユーザー | *必須* |
-| `ZABBIX_PASSWORD` | Zabbix API パスワード | *必須* |
+| `ZABBIX_API_TOKEN` | Zabbix の API トークン（Zabbix 5.4 以上）。`ZABBIX_USER`/`ZABBIX_PASSWORD` の代わりに使う | *どちらか一方* |
+| `ZABBIX_USER` | Zabbix API ユーザー | *どちらか一方* |
+| `ZABBIX_PASSWORD` | Zabbix API パスワード | *どちらか一方* |
 | `ZABBIX_CATEGORIES_INI` | `daily_brief` 用カテゴリ INI のパス | — |
 | `ZABBIX_BRIEF_RECENT_HOURS` | `daily_brief` の「直近」ウィンドウ（時間）。これより古い問題は件数に畳まれる | `24` |
 | `ZABBIX_BRIEF_PROBLEM_LIMIT` | `daily_brief` が1回に取得するアクティブ問題の上限。超過分は件数として数える | `1000` |
 | `ZABBIX_READ_ONLY` | `true`（`1`・`yes`・`on` も可）で `acknowledge_problem` と `set_maintenance` を登録しない（モデルからも見えない）。false 系以外の解釈できない値も読み取り専用として扱い、`health_check` で知らせる | 未設定（書き込みツールあり） |
+
+認証は `ZABBIX_API_TOKEN` か、`ZABBIX_USER` と `ZABBIX_PASSWORD` の組のどちらか一方で行う。
+トークンがあれば、残っている `ZABBIX_USER` は無視する。トークンと `ZABBIX_USER`・`ZABBIX_PASSWORD` の
+両方がそろっているときは設定の誤りとする。
+トークンならログインが要らず、クライアントの設定にパスワードを置かずに済む。期限を付けたり、
+トークンだけを無効にしたりできる（Zabbix の API トークンの画面）。
 
 !!! tip "何かに組み込む前に確認する"
     ```bash
@@ -116,6 +123,7 @@ GUI から起動した場合は通っていないことがあります。プラ�
 export ZABBIX_URL=https://zabbix.example.com
 export ZABBIX_USER=api-user
 export ZABBIX_PASSWORD=your-password
+# ユーザとパスワードの代わりに: export ZABBIX_API_TOKEN=your-token
 zapi-mcp
 ```
 

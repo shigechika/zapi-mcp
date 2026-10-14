@@ -334,7 +334,7 @@ name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions" },
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
@@ -380,8 +380,8 @@ name = "httpcore2"
 version = "2.13.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "h11" },
-    { name = "truststore" },
+    { name = "h11", marker = "python_full_version < '3.12' or python_full_version >= '3.14' or sys_platform != 'emscripten'" },
+    { name = "truststore", marker = "python_full_version < '3.12' or python_full_version >= '3.14' or sys_platform != 'emscripten'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/cb/f3/1db7aa2bc2524062192bb0e0323969492d1883152a232fe36eea65f4e35c/httpcore2-2.13.1.tar.gz", hash = "sha256:e0aa977abe17e69a3b820a24542a6fa88702676d83880b8d194dcd18408e5103", size = 68071, upload-time = "2026-09-23T07:47:22.372Z" }
 wheels = [
@@ -1229,8 +1229,8 @@ name = "uvicorn"
 version = "0.48.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "click" },
-    { name = "h11" },
+    { name = "click", marker = "python_full_version < '3.12' or python_full_version >= '3.14' or sys_platform != 'emscripten'" },
+    { name = "h11", marker = "python_full_version < '3.12' or python_full_version >= '3.14' or sys_platform != 'emscripten'" },
     { name = "typing-extensions", marker = "python_full_version < '3.11'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/e6/bf/f6544ba992ddb9a6077343a576f9844f7f8f06ab819aefd00206e9255f18/uvicorn-0.48.0.tar.gz", hash = "sha256:a5504207195d08c2511bf9125ede5ac4a4b71725d519e758d01dcf0bc2d31c37", size = 91074, upload-time = "2026-05-24T12:08:41.925Z" }
@@ -1240,14 +1240,14 @@ wheels = [
 
 [[package]]
 name = "zapi-lib"
-version = "0.6.0"
+version = "0.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/74/32/04531f617c160ff185a96f7aac622568d94a22ded543138555d66dbc751f/zapi_lib-0.6.0.tar.gz", hash = "sha256:c882bea23eeb6afb2749bf98650a9b50ada6cdc90279d1ccd011d80258224ae5", size = 22760, upload-time = "2026-08-11T03:25:08.545Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7f/3f/fa869cc89323120cd0b3c21e80b5151d3a9e5611aea742e192d6e9db8c0e/zapi_lib-0.9.0.tar.gz", hash = "sha256:11e4f9aa3ed8b351b9543c443ba3773092a4f8e629513366dbf6c15c24c957cc", size = 32527, upload-time = "2026-10-14T11:51:05.764Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bc/94/20cc0a96b8adb9e83f5a348b73fb8591302e463ba1f447adccc258d6d948/zapi_lib-0.6.0-py3-none-any.whl", hash = "sha256:09c92c0bf27e810276b53b0c150879e079581370dfcf8fd1a38a3a22063d3cb8", size = 14296, upload-time = "2026-08-11T03:25:07.27Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/f7/afd10274b40c48990f29c3c3babbb12b19aebb184048fa0e836a6122b455/zapi_lib-0.9.0-py3-none-any.whl", hash = "sha256:7c40c743f6edcc63d51f3199f536c6d96dc3e2fc09c59a8e133b5112473049ff", size = 19292, upload-time = "2026-10-14T11:51:04.55Z" },
 ]
 
 [[package]]
@@ -1270,7 +1270,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "mcp", specifier = ">=2,<3" },
-    { name = "zapi-lib", specifier = ">=0.6.0,<1" },
+    { name = "zapi-lib", specifier = ">=0.9.0,<1" },
 ]
 
 [package.metadata.requires-dev]

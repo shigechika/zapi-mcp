@@ -12,7 +12,8 @@ counts — never payloads, which would otherwise carry monitoring data into logs
 
 Usage:
     # In-process: imports the server, uses the configured API credentials.
-    ZABBIX_URL=... ZABBIX_USER=... ZABBIX_PASSWORD=... \
+    # (or ZABBIX_USER=... ZABBIX_PASSWORD=... instead of ZABBIX_API_TOKEN)
+    ZABBIX_URL=... ZABBIX_API_TOKEN=... \
         uv run python scripts/smoke_test.py
 
     # Iterate on one spec while writing it.

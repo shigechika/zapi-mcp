@@ -57,8 +57,9 @@ pip install -e .
 | 変数 | 説明 | デフォルト |
 |---|---|---|
 | `ZABBIX_URL` | Zabbix ベース URL（例: `https://zabbix.example.com`）。`/api_jsonrpc.php` は自動付与 | *必須* |
-| `ZABBIX_USER` | Zabbix API ユーザ | *必須* |
-| `ZABBIX_PASSWORD` | Zabbix API パスワード | *必須* |
+| `ZABBIX_API_TOKEN` | Zabbix の API トークン（Zabbix 5.4 以上）。`ZABBIX_USER`/`ZABBIX_PASSWORD` の代わりに使う | *どちらか一方* |
+| `ZABBIX_USER` | Zabbix API ユーザ | *どちらか一方* |
+| `ZABBIX_PASSWORD` | Zabbix API パスワード | *どちらか一方* |
 | `ZABBIX_CATEGORIES_INI` | `daily_brief` 用カテゴリ INI ファイルのパス（任意） | — |
 | `ZABBIX_BRIEF_RECENT_HOURS` | `daily_brief` の「直近」窓（時間）。これより古い問題は件数に折りたたむ | `24` |
 | `ZABBIX_BRIEF_PROBLEM_LIMIT` | `daily_brief` が 1 回の呼び出しで取得するアクティブ問題の上限（超過分は件数のみ集計） | `1000` |
@@ -68,6 +69,12 @@ API ユーザには照会するホストグループの参照権限が必要。`
 を使う場合は acknowledge 権限も、`set_maintenance` を使う場合はメンテナンス
 書き込み権限も、`get_maintenance_windows` と `daily_brief` の「In Maintenance」
 セクションを使う場合はメンテナンス参照権限（通常は既定で付与済み）も付与する。
+
+認証は `ZABBIX_API_TOKEN` か、`ZABBIX_USER` と `ZABBIX_PASSWORD` の組のどちらか一方で行う。
+トークンがあれば、残っている `ZABBIX_USER` は無視する。トークンと `ZABBIX_USER`・`ZABBIX_PASSWORD` の
+両方がそろっているときは設定の誤りとする。
+トークンならログインが要らず、クライアントの設定にパスワードを置かずに済む。期限を付けたり、
+トークンだけを無効にしたりできる（Zabbix の API トークンの画面）。
 
 ### `daily_brief` のアクティブな問題
 
@@ -220,6 +227,7 @@ GUI から起動した場合は通っていないことがあります。プラ�
 export ZABBIX_URL=https://zabbix.example.com
 export ZABBIX_USER=api-user
 export ZABBIX_PASSWORD=your-password
+# ユーザとパスワードの代わりに: export ZABBIX_API_TOKEN=your-token
 zapi-mcp
 ```
 

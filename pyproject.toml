@@ -23,10 +23,9 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: System :: Monitoring",
 ]
-# zapi-lib 0.6.0: first release with get_maintenances on ZapiClient, which
-# get_maintenance_windows and the daily_brief In Maintenance section need.
+# zapi-lib 0.9.0: first release accepting an API token (ZABBIX_API_TOKEN).
 dependencies = [
-    "zapi-lib>=0.6.0,<1",
+    "zapi-lib>=0.9.0,<1",
     "mcp>=2,<3",
 ]
 
