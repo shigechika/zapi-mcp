@@ -62,7 +62,7 @@ pip install -e .
 | `ZABBIX_CATEGORIES_INI` | `daily_brief` 用カテゴリ INI ファイルのパス（任意） | — |
 | `ZABBIX_BRIEF_RECENT_HOURS` | `daily_brief` の「直近」窓（時間）。これより古い問題は件数に折りたたむ | `24` |
 | `ZABBIX_BRIEF_PROBLEM_LIMIT` | `daily_brief` が 1 回の呼び出しで取得するアクティブ問題の上限（超過分は件数のみ集計） | `1000` |
-| `ZABBIX_READ_ONLY` | `true`（`1`・`yes`・`on` も可）で `acknowledge_problem` と `set_maintenance` を登録しない（モデルからも見えない）。false 系以外の解釈できない値も読み取り専用として扱い，`health_check` で知らせる | 未設定（書き込みツールあり） |
+| `ZABBIX_READ_ONLY` | `true`（`1`・`yes`・`on` も可）で `acknowledge_problem` と `set_maintenance` を登録しない（モデルからも見えない）。false 系以外の解釈できない値も読み取り専用として扱い、`health_check` で知らせる | 未設定（書き込みツールあり） |
 
 API ユーザには照会するホストグループの参照権限が必要。`acknowledge_problem`
 を使う場合は acknowledge 権限も、`set_maintenance` を使う場合はメンテナンス
@@ -148,10 +148,10 @@ tag_value = main
 ウィンドウの作成を Claude にやらせたい場合にだけ権限を付与すること。
 
 書き込みツールをモデルから完全に外すには `ZABBIX_READ_ONLY=true` を設定する。
-2 つのツールは登録されず（クライアントからも見えない），呼ばれても実行を拒む。
-1 つの Zabbix ユーザーで，読み取り専用のクライアントと書き込みもするクライアントを
+2 つのツールは登録されず（クライアントからも見えない）、呼ばれても実行を拒む。
+1 つの Zabbix ユーザで、読み取り専用のクライアントと書き込みもするクライアントを
 使い分けられる。どのツールにも MCP のツール注釈（`readOnlyHint`・`destructiveHint`・
-`idempotentHint`）を付けてあるので，クライアントは読み取りと書き込みを見分けられる。
+`idempotentHint`）を付けてあるので、クライアントは読み取りと書き込みを見分けられる。
 
 ## 使い方
 

@@ -19,6 +19,9 @@ Required environment variables:
   ZABBIX_USER           Zabbix API user
   ZABBIX_PASSWORD       Zabbix API password
   ZABBIX_CATEGORIES_INI Path to categories INI for --brief (optional)
+  ZABBIX_READ_ONLY      true/1/yes/on: do not register acknowledge_problem and
+                        set_maintenance (optional; any other non-false value is
+                        also treated as read-only)
 """,
     )
     parser.add_argument("--version", action="store_true", help="Print version and exit")
@@ -49,10 +52,20 @@ Required environment variables:
             client = ZapiClient(url, user, password)
             auth = "Bearer header" if client._bearer else "auth field"
             print(f"OK — Zabbix API {client.version} (auth: {auth})")
-            sys.exit(0)
         except ZapiError as e:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(2)
+        from zapi_mcp.server import WRITE_TOOLS, read_only_mode
+
+        read_only, read_only_error = read_only_mode()
+        if read_only:
+            print(f"Read-only: write tools not registered ({', '.join(WRITE_TOOLS)})")
+        else:
+            print(f"Write tools registered: {', '.join(WRITE_TOOLS)}")
+        if read_only_error:
+            print(f"Error: {read_only_error}", file=sys.stderr)
+            sys.exit(1)
+        sys.exit(0)
 
     if args.brief:
         from zapi_mcp.server import _daily_brief_text

@@ -41,7 +41,7 @@ API ユーザーには**照会対象のホストグループへの読み取り�
 | `ZABBIX_CATEGORIES_INI` | `daily_brief` 用カテゴリ INI のパス | — |
 | `ZABBIX_BRIEF_RECENT_HOURS` | `daily_brief` の「直近」ウィンドウ（時間）。これより古い問題は件数に畳まれる | `24` |
 | `ZABBIX_BRIEF_PROBLEM_LIMIT` | `daily_brief` が1回に取得するアクティブ問題の上限。超過分は件数として数える | `1000` |
-| `ZABBIX_READ_ONLY` | `true`（`1`・`yes`・`on` も可）で `acknowledge_problem` と `set_maintenance` を登録しない（モデルからも見えない）。false 系以外の解釈できない値も読み取り専用として扱い，`health_check` で知らせる | 未設定（書き込みツールあり） |
+| `ZABBIX_READ_ONLY` | `true`（`1`・`yes`・`on` も可）で `acknowledge_problem` と `set_maintenance` を登録しない（モデルからも見えない）。false 系以外の解釈できない値も読み取り専用として扱い、`health_check` で知らせる | 未設定（書き込みツールあり） |
 
 !!! tip "何かに組み込む前に確認する"
     ```bash

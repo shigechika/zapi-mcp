@@ -25,8 +25,28 @@ def reload_with(monkeypatch):
         return importlib.reload(server)
 
     yield _reload
-    monkeypatch.delenv("ZABBIX_READ_ONLY", raising=False)
+    # Restore the environment first, then rebuild the module from it.
+    monkeypatch.undo()
     importlib.reload(server)
+
+
+def test_write_tools_are_the_ones_annotated_as_writes():
+    assert set(server.WRITE_TOOLS) == {"acknowledge_problem", "set_maintenance"}
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, (False, None)),
+        ("", (False, None)),
+        ("off", (False, None)),
+        (" TRUE ", (True, None)),
+        ("1", (True, None)),
+    ],
+)
+def test_read_only_mode_parses_the_value(value, expected):
+    env = {} if value is None else {"ZABBIX_READ_ONLY": value}
+    assert server.read_only_mode(env) == expected
 
 
 @pytest.mark.parametrize("value", [None, "", "0", "false", "No", "off"])
@@ -58,11 +78,28 @@ def test_write_tools_refuse_when_called_directly_in_read_only_mode(reload_with):
         srv.set_maintenance("2026/01/01 00:00:00", "2026/01/01 01:00:00", "n", "d", location="x")
 
 
+def test_every_write_tool_is_guarded(reload_with):
+    """A new write tool gets the guard from its annotation alone; nothing to remember."""
+    srv = reload_with("true")
+    for name in srv.WRITE_TOOLS:
+        fn = getattr(srv, name)
+        with pytest.raises(ToolError, match="read-only"):
+            _call_with_dummies(fn)
+
+
+def _call_with_dummies(fn):
+    import inspect
+
+    params = inspect.signature(fn).parameters
+    return fn(**{p: "x" for p, spec in params.items() if spec.default is inspect.Parameter.empty})
+
+
 def test_tool_annotations_mark_read_and_write_tools():
     tools = {t.name: t for t in asyncio.run(server.mcp.list_tools())}
     for name, tool in tools.items():
         assert tool.annotations is not None, name
         assert tool.annotations.read_only_hint is (name not in server.WRITE_TOOLS), name
+        assert tool.annotations.open_world_hint is False, name
     assert tools["set_maintenance"].annotations.idempotent_hint is True
     assert tools["acknowledge_problem"].annotations.idempotent_hint is False
 

@@ -47,30 +47,14 @@ def _expose_errors(fn):
     return wrapper
 
 
-class _Server(MCPServer):
-    """MCPServer whose tools report their exception messages (see _expose_errors)."""
-
-    def tool(self, *args, **kwargs):
-        register = super().tool(*args, **kwargs)
-
-        def decorator(fn):
-            register(_expose_errors(fn))
-            return fn
-
-        return decorator
-
-
-mcp = _Server("zapi-mcp", version=__version__)
-
-# Tool annotations, so that a client can tell read and write tools apart.
-_READ_TOOL = ToolAnnotations(read_only_hint=True, open_world_hint=True)
-_ACK_TOOL = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True)
+# Tool annotations, so that a client can tell read and write tools apart. Every
+# tool talks to one configured Zabbix, a closed domain, hence open_world_hint=False.
+_READ_TOOL = ToolAnnotations(read_only_hint=True, open_world_hint=False)
+_ACK_TOOL = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False)
 _MAINTENANCE_TOOL = ToolAnnotations(
-    read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=True
+    read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False
 )
 
-# Tools that change state in Zabbix. ZABBIX_READ_ONLY keeps them from being registered.
-WRITE_TOOLS = ("acknowledge_problem", "set_maintenance")
 _READ_ONLY_TRUE = {"1", "true", "yes", "on"}
 _READ_ONLY_FALSE = {"", "0", "false", "no", "off"}
 
@@ -92,10 +76,46 @@ def read_only_mode(env=None) -> tuple[bool, str | None]:
     return True, f"unrecognized ZABBIX_READ_ONLY={raw!r}; treating it as read-only"
 
 
-def _refuse_if_read_only(tool: str) -> None:
-    """Second line of defence: a write tool refuses to run in read-only mode."""
-    if read_only_mode()[0]:
-        raise ToolError(f"{tool} is disabled: zapi-mcp runs in read-only mode (ZABBIX_READ_ONLY)")
+def _refuse_in_read_only_mode(fn):
+    """Wrap a write tool so it refuses to run in read-only mode (second line of defence)."""
+    if inspect.iscoroutinefunction(fn):
+        raise TypeError(f"write tool {fn.__name__} must be synchronous")
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        if read_only_mode()[0]:
+            raise ToolError(f"{fn.__name__} is disabled: zapi-mcp runs in read-only mode (ZABBIX_READ_ONLY)")
+        return fn(*args, **kwargs)
+
+    return wrapper
+
+
+class _Server(MCPServer):
+    """MCPServer whose tools report their exception messages (see _expose_errors).
+
+    A tool annotated ``read_only_hint=False`` is recorded in ``write_tools`` and
+    wrapped by ``_refuse_in_read_only_mode``, so the annotation is the single place
+    that makes a tool a write tool.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.write_tools: list[str] = []
+
+    def tool(self, *args, annotations: ToolAnnotations | None = None, **kwargs):
+        register = super().tool(*args, annotations=annotations, **kwargs)
+
+        def decorator(fn):
+            if annotations is not None and annotations.read_only_hint is False:
+                self.write_tools.append(kwargs.get("name") or fn.__name__)
+                fn = _refuse_in_read_only_mode(fn)
+            register(_expose_errors(fn))
+            return fn
+
+        return decorator
+
+
+mcp = _Server("zapi-mcp", version=__version__)
 
 
 _SEVERITY = {
@@ -750,7 +770,6 @@ def acknowledge_problem(event_ids: str, message: str) -> str:
         event_ids: Comma-separated event IDs (from get_problems output)
         message: Acknowledgement message
     """
-    _refuse_if_read_only("acknowledge_problem")
     ids = [eid.strip() for eid in event_ids.split(",") if eid.strip()]
     if not ids:
         return "No event IDs provided."
@@ -819,7 +838,6 @@ def set_maintenance(
     # (tag mode has no downstream empty check) or hit zapi-lib's empty-list
     # ZapiError (host mode) with a confusing message about hosts, not about
     # the whitespace that caused it.
-    _refuse_if_read_only("set_maintenance")
     location = location.strip() if location else None
     hosts = hosts.strip() if hosts else None
     if bool(location) == bool(hosts):
@@ -1167,6 +1185,10 @@ def get_maintenance_windows(include_expired: bool = False) -> str:
         for m in sorted(buckets["expired"], key=lambda m: m.get("active_since", "")):
             lines.extend(_window_block(m, MAINT_HOST_DISPLAY_LIMIT))
     return "\n".join(lines)
+
+
+# Tools that change state in Zabbix: those annotated read_only_hint=False.
+WRITE_TOOLS = tuple(mcp.write_tools)
 
 
 def _apply_read_only() -> None:
