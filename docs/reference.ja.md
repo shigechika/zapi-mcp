@@ -16,15 +16,17 @@
 | `zabbix_api_version` | 検出した API バージョン。接続に成功するまでは `null` |
 | `auth` | `ok` / `error` / `missing-env` |
 | `categories` | 読み込まれた `daily_brief` カテゴリ名 |
+| `read_only` | `ZABBIX_READ_ONLY` で `acknowledge_problem` と `set_maintenance` を外しているとき `true` |
 
-次の2つは、伝えるべきことがあるときだけ現れます。
+次の3つは、伝えるべきことがあるときだけ現れます。
 
 | キー | 現れる条件 |
 |---|---|
 | `detail` | バックエンド側の問題が起きたとき。環境変数の欠落（`status=error`・`auth=missing-env`）または Zabbix エラー（`status=degraded`・`auth=error`） |
 | `categories_error` | カテゴリファイルの解析に失敗したとき（`status=degraded`） |
+| `read_only_error` | `ZABBIX_READ_ONLY` の値が true とも false とも解釈できないとき。読み取り専用で動く（`status=degraded`） |
 
-この2つは独立しています。カテゴリファイルが読めないことだけが原因の場合、
+これらは独立しています。カテゴリファイルが読めないことだけが原因の場合、
 `status=degraded` と `categories_error` は返りますが `detail` は**付きません**。
 バックエンド自体には問題が無かったからです。
 

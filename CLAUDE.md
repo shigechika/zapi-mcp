@@ -22,6 +22,13 @@ to guard against stdio newline regressions).
 
 ## Architecture
 
+- Every tool carries `ToolAnnotations`. A tool annotated `read_only_hint=False`
+  is a write tool: `_Server.tool` records it in `server.WRITE_TOOLS` and wraps it
+  with `_refuse_in_read_only_mode`, so the annotation is the only thing to set.
+  `ZABBIX_READ_ONLY` removes the write tools at import time via
+  `mcp.remove_tool`; an unrecognized value is treated as read-only
+  (`read_only_mode`). A new write tool must also be added to
+  `tests/test_smoke_probes.STATE_CHANGING`.
 - `zapi_mcp/server.py` — MCPServer server with 8 tools: `health_check`,
   `daily_brief`, `get_problems`, `get_hosts`, `get_host_items`,
   `acknowledge_problem`, `set_maintenance` (idempotent maintenance window,

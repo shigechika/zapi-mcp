@@ -14,6 +14,8 @@ import respx
 os.environ.setdefault("ZABBIX_URL", "https://zabbix.example.com")
 os.environ.setdefault("ZABBIX_USER", "api-user")
 os.environ.setdefault("ZABBIX_PASSWORD", "api-pass")
+# A developer shell may run read-only; the suite expects the write tools registered.
+os.environ.pop("ZABBIX_READ_ONLY", None)
 
 ENDPOINT = "https://zabbix.example.com/api_jsonrpc.php"
 

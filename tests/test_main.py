@@ -42,6 +42,24 @@ def test_check_ok(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "Zabbix API 6.0.42" in out
     assert "auth field" in out  # legacy path for 6.0
+    assert "Write tools registered: acknowledge_problem, set_maintenance" in out
+
+
+@pytest.mark.parametrize(("value", "code"), [("true", 0), ("ture", 1)])
+def test_check_reports_read_only_mode(monkeypatch, capsys, value, code):
+    monkeypatch.setattr(sys, "argv", ["zapi-mcp", "--check"])
+    monkeypatch.setenv("ZABBIX_URL", "https://zabbix.example.com")
+    monkeypatch.setenv("ZABBIX_USER", "u")
+    monkeypatch.setenv("ZABBIX_PASSWORD", "p")
+    monkeypatch.setenv("ZABBIX_READ_ONLY", value)
+    with make_router(version="6.0.42"):
+        with pytest.raises(SystemExit) as e:
+            main()
+    assert e.value.code == code
+    captured = capsys.readouterr()
+    assert "Read-only: write tools not registered" in captured.out
+    if code:
+        assert "unrecognized ZABBIX_READ_ONLY" in captured.err
 
 
 def test_brief_prints_daily_brief(monkeypatch, capsys):

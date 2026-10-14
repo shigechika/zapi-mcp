@@ -16,15 +16,17 @@ for their existence — read `status` and the rest is there:
 | `zabbix_api_version` | Detected API version; `null` until a backend connection succeeds |
 | `auth` | `ok` / `error` / `missing-env` |
 | `categories` | Names of the loaded `daily_brief` categories |
+| `read_only` | `true` when `ZABBIX_READ_ONLY` removed `acknowledge_problem` and `set_maintenance` |
 
-Two further keys appear only when they have something to say:
+Three further keys appear only when they have something to say:
 
 | Key | Appears when |
 |---|---|
 | `detail` | A backend problem occurred: a missing environment variable (`status=error`, `auth=missing-env`) or a Zabbix error (`status=degraded`, `auth=error`) |
 | `categories_error` | The category file failed to parse (`status=degraded`) |
+| `read_only_error` | `ZABBIX_READ_ONLY` has a value that is neither true nor false; the server runs read-only (`status=degraded`) |
 
-The two are independent. A run whose only fault is an unparsable category file
+They are independent. A run whose only fault is an unparsable category file
 reports `status=degraded` with `categories_error` and **no** `detail`, because
 the backend itself was fine.
 
