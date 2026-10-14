@@ -74,9 +74,11 @@ permission if you use `set_maintenance`, and maintenance-read permission
 (usually included by default) for `get_maintenance_windows` and the
 `daily_brief` "In Maintenance" section.
 
-Authenticate with either `ZABBIX_API_TOKEN` or `ZABBIX_USER` + `ZABBIX_PASSWORD`, not
-both. A token needs no login and keeps a password out of the client configuration;
-it can be given an expiry and revoked on its own on Zabbix's API tokens page.
+Authenticate with either `ZABBIX_API_TOKEN` or `ZABBIX_USER` + `ZABBIX_PASSWORD`. When a
+token is set, a leftover `ZABBIX_USER` is ignored; a token together with both
+`ZABBIX_USER` and `ZABBIX_PASSWORD` is a configuration error. A token needs no login and
+keeps a password out of the client configuration; it can be given an expiry and
+revoked on its own on Zabbix's API tokens page.
 
 ### Active problems in `daily_brief`
 

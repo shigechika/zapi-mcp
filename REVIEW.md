@@ -10,7 +10,7 @@ reviewer also receives.
 ## Always blocking
 
 - **A credential or session token reaching a tool response, an error
-  string or a log line (§4).** `ZABBIX_USER`, `ZABBIX_PASSWORD`, or a
+  string or a log line (§4).** `ZABBIX_API_TOKEN`, `ZABBIX_USER`, `ZABBIX_PASSWORD`, or a
   Zabbix auth token / session id. `ZABBIX_URL` is **not** a secret
   here — `health_check` returns it deliberately as the documented,
   always-present `zabbix_url` key — so this rule is about the

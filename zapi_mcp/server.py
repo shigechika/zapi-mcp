@@ -4,6 +4,7 @@ import configparser
 import functools
 import inspect
 import os
+import threading
 from datetime import datetime
 
 from mcp.server.mcpserver import MCPServer
@@ -146,35 +147,83 @@ DEFAULT_BRIEF_PROBLEM_LIMIT = 1000
 # Zabbix keeps active because their recovery is never auto-confirmed.
 DEFAULT_RECENT_HOURS = 24
 
+
+class MissingEnv(KeyError):
+    """A required environment variable is missing or empty. ``str()`` is readable (no repr quotes)."""
+
+    def __str__(self) -> str:
+        return str(self.args[0]) if self.args else ""
+
+
+class CredentialConflict(MissingEnv):
+    """A token and a full user/password pair are both set: the configuration is ambiguous."""
+
+
+def zabbix_credentials(env=None) -> dict:
+    """Read ZABBIX_URL and the credentials from the environment as ZapiClient kwargs.
+
+    ZABBIX_API_TOKEN wins over a leftover ZABBIX_USER (the documented examples
+    carry one); a token together with both ZABBIX_USER and ZABBIX_PASSWORD is a
+    CredentialConflict. Without a token, ZABBIX_USER and ZABBIX_PASSWORD are
+    required. Empty values count as missing. Raises MissingEnv naming everything
+    that is missing.
+    """
+    e = os.environ if env is None else env
+    url = (e.get("ZABBIX_URL") or "").strip()
+    token = (e.get("ZABBIX_API_TOKEN") or "").strip()
+    user = e.get("ZABBIX_USER") or ""
+    password = e.get("ZABBIX_PASSWORD") or ""
+
+    if token and user and password:
+        raise CredentialConflict(
+            "ZABBIX_API_TOKEN and ZABBIX_USER/ZABBIX_PASSWORD are all set; "
+            "keep either the token or the user and password"
+        )
+    missing = []
+    if not url:
+        missing.append("ZABBIX_URL")
+    if not token and not (user and password):
+        missing.append("ZABBIX_API_TOKEN (or ZABBIX_USER and ZABBIX_PASSWORD)")
+    if missing:
+        raise MissingEnv(", ".join(missing))
+    if token:
+        return {"url": url, "api_token": token}
+    return {"url": url, "user": user, "password": password}
+
+
+def _env_error_text(e: KeyError) -> str:
+    """Tool-facing message for a missing or conflicting environment variable."""
+    if isinstance(e, CredentialConflict):
+        return f"Configuration error: {e}"
+    name = e.args[0] if e.args else e
+    return f"Missing environment variable: {name}"
+
+
 # Cached client: a stdio server is long-lived and single-user, so we build and
 # authenticate once, reusing the httpx pool and Zabbix session across calls.
+# mcp 2.x runs sync tools in worker threads, so creation and reset are locked.
 _CLIENT: ZapiClient | None = None
+_CLIENT_LOCK = threading.Lock()
 
 
 def _client() -> ZapiClient:
     global _CLIENT
-    if _CLIENT is None:
-        url = os.environ["ZABBIX_URL"]
-        token = os.environ.get("ZABBIX_API_TOKEN") or None
-        user = os.environ.get("ZABBIX_USER") or None
-        password = os.environ.get("ZABBIX_PASSWORD") or None
-        if not token and not (user and password):
-            # KeyError so every tool reports it as a missing environment variable.
-            raise KeyError("ZABBIX_API_TOKEN, or ZABBIX_USER and ZABBIX_PASSWORD")
-        # Both a token and a password: zapi-lib raises ZapiAuthError, reported as a Zabbix error.
-        _CLIENT = ZapiClient(url, user, password, api_token=token)
-    return _CLIENT
+    with _CLIENT_LOCK:
+        if _CLIENT is None:
+            _CLIENT = ZapiClient(**zabbix_credentials())
+        return _CLIENT
 
 
 def reset_client() -> None:
     """Drop the cached client so the next call re-authenticates (token refresh)."""
     global _CLIENT
-    if _CLIENT is not None:
-        try:
-            _CLIENT.close()
-        except Exception:
-            pass
-        _CLIENT = None
+    with _CLIENT_LOCK:
+        if _CLIENT is not None:
+            try:
+                _CLIENT.close()
+            except Exception:
+                pass
+            _CLIENT = None
 
 
 def _fmt_time(epoch: int | str | None) -> str:
@@ -493,7 +542,7 @@ def health_check() -> dict:
     except KeyError as e:
         result["status"] = "error"
         result["auth"] = "missing-env"
-        result["detail"] = f"Missing environment variable: {e}"
+        result["detail"] = _env_error_text(e)
     except ZapiError as e:
         reset_client()
         result["status"] = "degraded"
@@ -514,7 +563,7 @@ def _daily_brief_text() -> tuple[str, bool]:
     try:
         client = _client()
     except KeyError as e:
-        return f"Missing environment variable: {e}", True
+        return _env_error_text(e), True
     except ZapiError as e:
         reset_client()
         return f"Zabbix error: {e}", True
@@ -672,7 +721,7 @@ def get_problems(
         tags = [tag_filter(tag_name, tag_value)] if tag_name else None
         problems, total = _fetch_problems_with_total(client, severities=severities, tags=tags, limit=max(1, limit))
     except KeyError as e:
-        return f"Missing environment variable: {e}"
+        return _env_error_text(e)
     except ZapiError as e:
         reset_client()
         return f"Zabbix error: {e}"
@@ -716,7 +765,7 @@ def get_hosts(
             tags.append(tag_filter(tag_name, tag_value))
         hosts = client.get_hosts(tags=tags or None, group=group)
     except KeyError as e:
-        return f"Missing environment variable: {e}"
+        return _env_error_text(e)
     except ZapiError as e:
         reset_client()
         return f"Zabbix error: {e}"
@@ -749,7 +798,7 @@ def get_host_items(host: str, search: str | None = None) -> str:
             return f"Host '{host}' not found."
         items = client.get_items([hosts[0]["hostid"]], name_search=search)
     except KeyError as e:
-        return f"Missing environment variable: {e}"
+        return _env_error_text(e)
     except ZapiError as e:
         reset_client()
         return f"Zabbix error: {e}"
@@ -781,7 +830,7 @@ def acknowledge_problem(event_ids: str, message: str) -> str:
         client = _client()
         result = client.acknowledge_problem(ids, message)
     except KeyError as e:
-        return f"Missing environment variable: {e}"
+        return _env_error_text(e)
     except ZapiError as e:
         reset_client()
         return f"Zabbix error: {e}"
@@ -865,7 +914,7 @@ def set_maintenance(
             maintenance_ids = client.set_maintenance_for_hosts(host_list, since, till, name, description)
             target = f"hosts={', '.join(host_list)}"
     except KeyError as e:
-        return f"Missing environment variable: {e}"
+        return _env_error_text(e)
     except ZapiError as e:
         reset_client()
         return f"Zabbix error: {e}"
@@ -1164,7 +1213,7 @@ def get_maintenance_windows(include_expired: bool = False) -> str:
         client = _client()
         windows = client.get_maintenances()
     except KeyError as e:
-        return f"Missing environment variable: {e}"
+        return _env_error_text(e)
     except ZapiError as e:
         reset_client()
         return f"Zabbix error: {e}"

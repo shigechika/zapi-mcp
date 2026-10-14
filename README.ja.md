@@ -70,7 +70,9 @@ API ユーザには照会するホストグループの参照権限が必要。`
 書き込み権限も、`get_maintenance_windows` と `daily_brief` の「In Maintenance」
 セクションを使う場合はメンテナンス参照権限（通常は既定で付与済み）も付与する。
 
-認証は `ZABBIX_API_TOKEN` か、`ZABBIX_USER` と `ZABBIX_PASSWORD` の組のどちらか一方で行う（両方は不可）。
+認証は `ZABBIX_API_TOKEN` か、`ZABBIX_USER` と `ZABBIX_PASSWORD` の組のどちらか一方で行う。
+トークンがあれば、残っている `ZABBIX_USER` は無視する。トークンと `ZABBIX_USER`・`ZABBIX_PASSWORD` の
+両方がそろっているときは設定の誤りとする。
 トークンならログインが要らず、クライアントの設定にパスワードを置かずに済む。期限を付けたり、
 トークンだけを無効にしたりできる（Zabbix の API トークンの画面）。
 

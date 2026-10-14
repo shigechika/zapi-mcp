@@ -5,6 +5,7 @@ import time
 from datetime import datetime
 
 import httpx
+import pytest
 import respx
 from freezegun import freeze_time
 
@@ -1406,11 +1407,82 @@ def test_no_token_and_no_password_is_missing_env(monkeypatch):
     assert "ZABBIX_API_TOKEN" in out["detail"]
 
 
-def test_token_and_password_together_is_reported(monkeypatch):
+def test_token_and_password_together_is_a_configuration_error(monkeypatch):
     monkeypatch.setenv("ZABBIX_API_TOKEN", "f00dbabe" * 8)
     monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
     server.reset_client()
     out = _call(server.health_check)()  # rejected before any request
+    assert out["status"] == "error"
+    assert out["auth"] == "missing-env"
+    assert out["detail"].startswith("Configuration error: ")
+    assert "keep either" in out["detail"]
+
+
+def test_a_token_wins_over_a_leftover_user(monkeypatch):
+    """The documented examples carry ZABBIX_USER; adding a token and emptying the password must work."""
+    monkeypatch.setenv("ZABBIX_API_TOKEN", "  " + "f00dbabe" * 8 + "\r\n")  # .env with CRLF
+    monkeypatch.setenv("ZABBIX_USER", "api-user")
+    monkeypatch.setenv("ZABBIX_PASSWORD", "")
     server.reset_client()
-    assert out["auth"] == "error"
-    assert "not both" in out["detail"]
+    r = make_router(version="6.0.42")
+    with r:
+        out = _call(server.health_check)()
+    server.reset_client()
+    assert out["auth"] == "ok"
+    assert "user.login" not in [x["payload"]["method"] for x in r.captured]
+
+
+@pytest.mark.parametrize(("version", "where"), [("6.0.42", "auth"), ("7.0.5", "bearer")])
+def test_the_token_is_sent_with_every_call(monkeypatch, version, where):
+    token = "f00dbabe" * 8
+    monkeypatch.setenv("ZABBIX_API_TOKEN", token)
+    monkeypatch.delenv("ZABBIX_USER", raising=False)
+    monkeypatch.delenv("ZABBIX_PASSWORD", raising=False)
+    server.reset_client()
+    r = make_router(version=version)
+    with r:
+        _call(server.get_problems)()
+    server.reset_client()
+    call = next(x for x in r.captured if x["payload"]["method"] == "problem.get")
+    if where == "auth":
+        assert call["payload"]["auth"] == token
+    else:
+        assert call["headers"].get("authorization") == f"Bearer {token}"
+        assert "auth" not in call["payload"]
+
+
+def test_an_empty_url_is_missing_env(monkeypatch):
+    monkeypatch.setenv("ZABBIX_URL", "")
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+    server.reset_client()
+    out = _call(server.health_check)()  # no router: must not reach the network
+    assert out["auth"] == "missing-env"
+    assert out["detail"] == "Missing environment variable: ZABBIX_URL"
+
+
+def test_missing_url_and_credentials_are_both_named():
+    with pytest.raises(server.MissingEnv) as exc:
+        server.zabbix_credentials({})
+    assert str(exc.value) == "ZABBIX_URL, ZABBIX_API_TOKEN (or ZABBIX_USER and ZABBIX_PASSWORD)"
+
+
+def test_concurrent_first_calls_build_one_client(monkeypatch):
+    import threading
+
+    built = []
+    real = server.ZapiClient
+
+    def counting(**kwargs):
+        built.append(kwargs)
+        return real(**kwargs)
+
+    monkeypatch.setattr(server, "ZapiClient", counting)
+    server.reset_client()
+    with make_router():
+        threads = [threading.Thread(target=server._client) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    server.reset_client()
+    assert len(built) == 1

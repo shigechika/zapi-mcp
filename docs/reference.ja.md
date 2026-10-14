@@ -22,7 +22,7 @@
 
 | キー | 現れる条件 |
 |---|---|
-| `detail` | バックエンド側の問題が起きたとき。環境変数の欠落（`status=error`・`auth=missing-env`）または Zabbix エラー（`status=degraded`・`auth=error`） |
+| `detail` | バックエンド側の問題が起きたとき。環境変数の欠落、またはトークンとユーザ・パスワードの両方の指定（`status=error`・`auth=missing-env`）または Zabbix エラー（`status=degraded`・`auth=error`） |
 | `categories_error` | カテゴリファイルの解析に失敗したとき（`status=degraded`） |
 | `read_only_error` | `ZABBIX_READ_ONLY` の値が true とも false とも解釈できないとき。読み取り専用で動く（`status=degraded`） |
 

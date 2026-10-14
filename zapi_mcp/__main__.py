@@ -38,25 +38,22 @@ Required environment variables:
         print(f"zapi-mcp {__version__}")
         sys.exit(0)
 
-    url = os.environ.get("ZABBIX_URL")
-    token = os.environ.get("ZABBIX_API_TOKEN") or None
-    user = os.environ.get("ZABBIX_USER") or None
-    password = os.environ.get("ZABBIX_PASSWORD") or None
+    from zapi_mcp.server import CredentialConflict, MissingEnv, zabbix_credentials
 
-    missing = []
-    if not url:
-        missing.append("ZABBIX_URL")
-    if not token and not (user and password):
-        missing.append("ZABBIX_API_TOKEN (or ZABBIX_USER and ZABBIX_PASSWORD)")
-    if missing:
-        print(f"Error: missing environment variables: {', '.join(missing)}", file=sys.stderr)
+    try:
+        credentials = zabbix_credentials()
+    except CredentialConflict as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except MissingEnv as e:
+        print(f"Error: missing environment variables: {e}", file=sys.stderr)
         sys.exit(1)
 
     if args.check:
         try:
-            client = ZapiClient(url, user, password, api_token=token)
+            client = ZapiClient(**credentials)
             auth = "Bearer header" if client._bearer else "auth field"
-            kind = "API token" if token else "user/password"
+            kind = "API token" if "api_token" in credentials else "user/password"
             print(f"OK — Zabbix API {client.version} ({kind}, auth: {auth})")
         except ZapiError as e:
             print(f"Error: {e}", file=sys.stderr)

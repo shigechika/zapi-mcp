@@ -69,9 +69,9 @@ though not automatically wrong if there's a stated reason.
 
 ## 4. Secrets and adversarial tool inputs
 
-- `ZABBIX_USER` / `ZABBIX_PASSWORD` are read from the environment
-  (`__main__.py`, `server.py`'s `_client()`). Flag any diff that logs or
-  returns either, or a Zabbix auth token/session id, in a tool response or
+- `ZABBIX_API_TOKEN`, `ZABBIX_USER` / `ZABBIX_PASSWORD` are read from the
+  environment (`server.py`'s `zabbix_credentials()`, used by `_client()` and
+  `__main__.py`). Flag any diff that logs or returns any of them, or a Zabbix auth token/session id, in a tool response or
   error string. `ZABBIX_URL` is read from the same place but is **not** a
   secret here: `health_check` deliberately returns it as the documented,
   always-present `zabbix_url` key, so don't flag that existing behavior —

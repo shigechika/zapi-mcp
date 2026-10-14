@@ -22,9 +22,12 @@ to guard against stdio newline regressions).
 
 ## Architecture
 
-- Credentials: `_client()` passes `ZABBIX_API_TOKEN` (zapi-lib >= 0.9.0
-  `api_token=`) or `ZABBIX_USER` + `ZABBIX_PASSWORD`. Neither raises `KeyError`
-  (reported as a missing environment variable); both is rejected by zapi-lib.
+- Credentials: `zabbix_credentials()` is the single reader (used by `_client()`
+  and `__main__`). `ZABBIX_API_TOKEN` (zapi-lib >= 0.9.0 `api_token=`) wins over a
+  leftover `ZABBIX_USER`; a token plus both user and password raises
+  `CredentialConflict`; anything missing (empty counts) raises `MissingEnv`.
+  Both are `KeyError`s, reported via `_env_error_text()`. `_client()` and
+  `reset_client()` hold `_CLIENT_LOCK` (sync tools run in worker threads).
 - Every tool carries `ToolAnnotations`. A tool annotated `read_only_hint=False`
   is a write tool: `_Server.tool` records it in `server.WRITE_TOOLS` and wraps it
   with `_refuse_in_read_only_mode`, so the annotation is the only thing to set.

@@ -22,7 +22,7 @@ Three further keys appear only when they have something to say:
 
 | Key | Appears when |
 |---|---|
-| `detail` | A backend problem occurred: a missing environment variable (`status=error`, `auth=missing-env`) or a Zabbix error (`status=degraded`, `auth=error`) |
+| `detail` | A backend problem occurred: a missing environment variable, or a token and a user/password both set (`status=error`, `auth=missing-env`) or a Zabbix error (`status=degraded`, `auth=error`) |
 | `categories_error` | The category file failed to parse (`status=degraded`) |
 | `read_only_error` | `ZABBIX_READ_ONLY` has a value that is neither true nor false; the server runs read-only (`status=degraded`) |
 

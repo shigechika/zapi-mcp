@@ -141,3 +141,15 @@ def test_missing_credentials_names_both_options(monkeypatch, capsys):
         main()
     assert e.value.code == 1
     assert "ZABBIX_API_TOKEN (or ZABBIX_USER and ZABBIX_PASSWORD)" in capsys.readouterr().err
+
+
+def test_check_with_both_token_and_password_exits_1(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["zapi-mcp", "--check"])
+    monkeypatch.setenv("ZABBIX_URL", "https://zabbix.example.com")
+    monkeypatch.setenv("ZABBIX_API_TOKEN", "f00dbabe" * 8)
+    monkeypatch.setenv("ZABBIX_USER", "u")
+    monkeypatch.setenv("ZABBIX_PASSWORD", "p")
+    with pytest.raises(SystemExit) as e:
+        main()
+    assert e.value.code == 1
+    assert "keep either the token or the user and password" in capsys.readouterr().err
