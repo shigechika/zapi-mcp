@@ -60,8 +60,9 @@ Set the following environment variables:
 | Variable | Description | Default |
 |---|---|---|
 | `ZABBIX_URL` | Zabbix base URL (e.g. `https://zabbix.example.com`); `/api_jsonrpc.php` is appended if absent | *required* |
-| `ZABBIX_USER` | Zabbix API user | *required* |
-| `ZABBIX_PASSWORD` | Zabbix API password | *required* |
+| `ZABBIX_API_TOKEN` | Zabbix API token (Zabbix 5.4+), used instead of `ZABBIX_USER`/`ZABBIX_PASSWORD` | *one of the two* |
+| `ZABBIX_USER` | Zabbix API user | *one of the two* |
+| `ZABBIX_PASSWORD` | Zabbix API password | *one of the two* |
 | `ZABBIX_CATEGORIES_INI` | Path to a categories INI file for `daily_brief` (optional) | — |
 | `ZABBIX_BRIEF_RECENT_HOURS` | `daily_brief` "recent" window in hours; problems older than this are folded to a count | `24` |
 | `ZABBIX_BRIEF_PROBLEM_LIMIT` | Max active problems `daily_brief` fetches per call before counting the rest | `1000` |
@@ -72,6 +73,10 @@ acknowledge permission if you use `acknowledge_problem`, maintenance-write
 permission if you use `set_maintenance`, and maintenance-read permission
 (usually included by default) for `get_maintenance_windows` and the
 `daily_brief` "In Maintenance" section.
+
+Authenticate with either `ZABBIX_API_TOKEN` or `ZABBIX_USER` + `ZABBIX_PASSWORD`, not
+both. A token needs no login and keeps a password out of the client configuration;
+it can be given an expiry and revoked on its own on Zabbix's API tokens page.
 
 ### Active problems in `daily_brief`
 
@@ -226,6 +231,7 @@ Add to `claude_desktop_config.json`:
 export ZABBIX_URL=https://zabbix.example.com
 export ZABBIX_USER=api-user
 export ZABBIX_PASSWORD=your-password
+# or, instead of the user and password: export ZABBIX_API_TOKEN=your-token
 zapi-mcp
 ```
 

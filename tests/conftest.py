@@ -16,6 +16,8 @@ os.environ.setdefault("ZABBIX_USER", "api-user")
 os.environ.setdefault("ZABBIX_PASSWORD", "api-pass")
 # A developer shell may run read-only; the suite expects the write tools registered.
 os.environ.pop("ZABBIX_READ_ONLY", None)
+# The suite authenticates with ZABBIX_USER/ZABBIX_PASSWORD; an ambient token would make that ambiguous.
+os.environ.pop("ZABBIX_API_TOKEN", None)
 
 ENDPOINT = "https://zabbix.example.com/api_jsonrpc.php"
 

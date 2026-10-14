@@ -115,3 +115,29 @@ def test_sigint_exits_cleanly():
         raise
     assert proc.returncode == 0
     assert b"Traceback" not in stderr
+
+
+def test_check_with_an_api_token(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["zapi-mcp", "--check"])
+    monkeypatch.setenv("ZABBIX_URL", "https://zabbix.example.com")
+    monkeypatch.setenv("ZABBIX_API_TOKEN", "f00dbabe" * 8)
+    monkeypatch.delenv("ZABBIX_USER", raising=False)
+    monkeypatch.delenv("ZABBIX_PASSWORD", raising=False)
+    r = make_router(version="7.0.5")
+    with r:
+        with pytest.raises(SystemExit) as e:
+            main()
+    assert e.value.code == 0
+    assert "API token, auth: Bearer header" in capsys.readouterr().out
+    assert "user.login" not in [x["payload"]["method"] for x in r.captured]
+
+
+def test_missing_credentials_names_both_options(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["zapi-mcp", "--check"])
+    monkeypatch.setenv("ZABBIX_URL", "https://zabbix.example.com")
+    for var in ("ZABBIX_API_TOKEN", "ZABBIX_PASSWORD"):
+        monkeypatch.delenv(var, raising=False)
+    with pytest.raises(SystemExit) as e:
+        main()
+    assert e.value.code == 1
+    assert "ZABBIX_API_TOKEN (or ZABBIX_USER and ZABBIX_PASSWORD)" in capsys.readouterr().err

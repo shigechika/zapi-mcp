@@ -6,6 +6,7 @@
       "args": ["zapi-mcp"],
       "env": {
         "ZABBIX_URL": "${ZABBIX_URL:-}",
+        "ZABBIX_API_TOKEN": "${ZABBIX_API_TOKEN:-}",
         "ZABBIX_USER": "${ZABBIX_USER:-}",
         "ZABBIX_PASSWORD": "${ZABBIX_PASSWORD:-}",
         "ZABBIX_CATEGORIES_INI": "${ZABBIX_CATEGORIES_INI:-}",

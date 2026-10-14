@@ -36,8 +36,9 @@ API ユーザーには**照会対象のホストグループへの読み取り�
 | 変数 | 説明 | 既定 |
 |---|---|---|
 | `ZABBIX_URL` | Zabbix のベース URL（例 `https://zabbix.example.com`）。`/api_jsonrpc.php` は無ければ補われる | *必須* |
-| `ZABBIX_USER` | Zabbix API ユーザー | *必須* |
-| `ZABBIX_PASSWORD` | Zabbix API パスワード | *必須* |
+| `ZABBIX_API_TOKEN` | Zabbix の API トークン（Zabbix 5.4 以上）。`ZABBIX_USER`/`ZABBIX_PASSWORD` の代わりに使う | *どちらか一方* |
+| `ZABBIX_USER` | Zabbix API ユーザー | *どちらか一方* |
+| `ZABBIX_PASSWORD` | Zabbix API パスワード | *どちらか一方* |
 | `ZABBIX_CATEGORIES_INI` | `daily_brief` 用カテゴリ INI のパス | — |
 | `ZABBIX_BRIEF_RECENT_HOURS` | `daily_brief` の「直近」ウィンドウ（時間）。これより古い問題は件数に畳まれる | `24` |
 | `ZABBIX_BRIEF_PROBLEM_LIMIT` | `daily_brief` が1回に取得するアクティブ問題の上限。超過分は件数として数える | `1000` |

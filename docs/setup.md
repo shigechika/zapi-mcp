@@ -37,8 +37,9 @@ audit trail readable and survives that person leaving.
 | Variable | Description | Default |
 |---|---|---|
 | `ZABBIX_URL` | Zabbix base URL (e.g. `https://zabbix.example.com`); `/api_jsonrpc.php` is appended if absent | *required* |
-| `ZABBIX_USER` | Zabbix API user | *required* |
-| `ZABBIX_PASSWORD` | Zabbix API password | *required* |
+| `ZABBIX_API_TOKEN` | Zabbix API token (Zabbix 5.4+), used instead of `ZABBIX_USER`/`ZABBIX_PASSWORD` | *one of the two* |
+| `ZABBIX_USER` | Zabbix API user | *one of the two* |
+| `ZABBIX_PASSWORD` | Zabbix API password | *one of the two* |
 | `ZABBIX_CATEGORIES_INI` | Path to a categories INI for `daily_brief` | — |
 | `ZABBIX_BRIEF_RECENT_HOURS` | `daily_brief` "recent" window in hours; older problems are folded to a count | `24` |
 | `ZABBIX_BRIEF_PROBLEM_LIMIT` | Max active problems `daily_brief` fetches per call before counting the rest | `1000` |

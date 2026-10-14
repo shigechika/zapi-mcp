@@ -22,6 +22,9 @@ to guard against stdio newline regressions).
 
 ## Architecture
 
+- Credentials: `_client()` passes `ZABBIX_API_TOKEN` (zapi-lib >= 0.9.0
+  `api_token=`) or `ZABBIX_USER` + `ZABBIX_PASSWORD`. Neither raises `KeyError`
+  (reported as a missing environment variable); both is rejected by zapi-lib.
 - Every tool carries `ToolAnnotations`. A tool annotated `read_only_hint=False`
   is a write tool: `_Server.tool` records it in `server.WRITE_TOOLS` and wraps it
   with `_refuse_in_read_only_mode`, so the annotation is the only thing to set.

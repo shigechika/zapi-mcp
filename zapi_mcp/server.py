@@ -154,11 +154,15 @@ _CLIENT: ZapiClient | None = None
 def _client() -> ZapiClient:
     global _CLIENT
     if _CLIENT is None:
-        _CLIENT = ZapiClient(
-            os.environ["ZABBIX_URL"],
-            os.environ["ZABBIX_USER"],
-            os.environ["ZABBIX_PASSWORD"],
-        )
+        url = os.environ["ZABBIX_URL"]
+        token = os.environ.get("ZABBIX_API_TOKEN") or None
+        user = os.environ.get("ZABBIX_USER") or None
+        password = os.environ.get("ZABBIX_PASSWORD") or None
+        if not token and not (user and password):
+            # KeyError so every tool reports it as a missing environment variable.
+            raise KeyError("ZABBIX_API_TOKEN, or ZABBIX_USER and ZABBIX_PASSWORD")
+        # Both a token and a password: zapi-lib raises ZapiAuthError, reported as a Zabbix error.
+        _CLIENT = ZapiClient(url, user, password, api_token=token)
     return _CLIENT
 
 

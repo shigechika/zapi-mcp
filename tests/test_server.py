@@ -1376,3 +1376,41 @@ def test_client_is_cached_across_calls():
         _call(server.get_hosts)()
     logins = [x for x in r.captured if x["payload"]["method"] == "user.login"]
     assert len(logins) == 1
+
+
+# ---- ZABBIX_API_TOKEN -------------------------------------------------------
+
+
+def test_client_uses_the_api_token_without_login(monkeypatch):
+    monkeypatch.setenv("ZABBIX_API_TOKEN", "f00dbabe" * 8)
+    monkeypatch.delenv("ZABBIX_USER", raising=False)
+    monkeypatch.delenv("ZABBIX_PASSWORD", raising=False)
+    server.reset_client()
+    r = make_router(version="6.0.42")
+    with r:
+        out = _call(server.health_check)()
+    server.reset_client()
+    assert out["auth"] == "ok"
+    methods = [x["payload"]["method"] for x in r.captured]
+    assert "user.login" not in methods
+
+
+def test_no_token_and_no_password_is_missing_env(monkeypatch):
+    monkeypatch.delenv("ZABBIX_API_TOKEN", raising=False)
+    monkeypatch.delenv("ZABBIX_PASSWORD", raising=False)
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+    server.reset_client()
+    out = _call(server.health_check)()  # no router: must not reach the network
+    assert out["status"] == "error"
+    assert out["auth"] == "missing-env"
+    assert "ZABBIX_API_TOKEN" in out["detail"]
+
+
+def test_token_and_password_together_is_reported(monkeypatch):
+    monkeypatch.setenv("ZABBIX_API_TOKEN", "f00dbabe" * 8)
+    monkeypatch.delenv("ZABBIX_CATEGORIES_INI", raising=False)
+    server.reset_client()
+    out = _call(server.health_check)()  # rejected before any request
+    server.reset_client()
+    assert out["auth"] == "error"
+    assert "not both" in out["detail"]
