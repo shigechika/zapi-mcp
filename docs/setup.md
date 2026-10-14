@@ -42,6 +42,7 @@ audit trail readable and survives that person leaving.
 | `ZABBIX_CATEGORIES_INI` | Path to a categories INI for `daily_brief` | — |
 | `ZABBIX_BRIEF_RECENT_HOURS` | `daily_brief` "recent" window in hours; older problems are folded to a count | `24` |
 | `ZABBIX_BRIEF_PROBLEM_LIMIT` | Max active problems `daily_brief` fetches per call before counting the rest | `1000` |
+| `ZABBIX_READ_ONLY` | `true` (or `1`/`yes`/`on`) keeps `acknowledge_problem` and `set_maintenance` from being registered, so the model never sees them. Any other non-false value is also treated as read-only and reported by `health_check` | unset (write tools on) |
 
 !!! tip "Verify before wiring it into anything"
     ```bash

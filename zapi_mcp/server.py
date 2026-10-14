@@ -9,6 +9,7 @@ from datetime import datetime
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.shared.exceptions import MCPError
+from mcp.types import ToolAnnotations
 
 from zapi_mcp import __version__
 from zapi_mcp.categories import Category, load_categories
@@ -60,6 +61,42 @@ class _Server(MCPServer):
 
 
 mcp = _Server("zapi-mcp", version=__version__)
+
+# Tool annotations, so that a client can tell read and write tools apart.
+_READ_TOOL = ToolAnnotations(read_only_hint=True, open_world_hint=True)
+_ACK_TOOL = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True)
+_MAINTENANCE_TOOL = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=True
+)
+
+# Tools that change state in Zabbix. ZABBIX_READ_ONLY keeps them from being registered.
+WRITE_TOOLS = ("acknowledge_problem", "set_maintenance")
+_READ_ONLY_TRUE = {"1", "true", "yes", "on"}
+_READ_ONLY_FALSE = {"", "0", "false", "no", "off"}
+
+
+def read_only_mode(env=None) -> tuple[bool, str | None]:
+    """Resolve ZABBIX_READ_ONLY into ``(read_only, error)``.
+
+    Unset or a false value (0/false/no/off) keeps the write tools. A true value
+    (1/true/yes/on) removes them. Any other value is treated as read-only -- a
+    typo must not leave the write tools on -- and ``error`` says so.
+    """
+    e = os.environ if env is None else env
+    raw = e.get("ZABBIX_READ_ONLY", "")
+    value = raw.strip().lower()
+    if value in _READ_ONLY_TRUE:
+        return True, None
+    if value in _READ_ONLY_FALSE:
+        return False, None
+    return True, f"unrecognized ZABBIX_READ_ONLY={raw!r}; treating it as read-only"
+
+
+def _refuse_if_read_only(tool: str) -> None:
+    """Second line of defence: a write tool refuses to run in read-only mode."""
+    if read_only_mode()[0]:
+        raise ToolError(f"{tool} is disabled: zapi-mcp runs in read-only mode (ZABBIX_READ_ONLY)")
+
 
 _SEVERITY = {
     0: "Not classified",
@@ -375,7 +412,7 @@ def _brief_problem_category(client: ZapiClient, cat: Category, now_ts: int, rece
     return lines
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_TOOL)
 def health_check() -> dict:
     """Report server version, Zabbix connectivity, and configured categories.
 
@@ -388,9 +425,11 @@ def health_check() -> dict:
     Always returns the same keys: ``status`` (healthy / degraded / error),
     ``service``, ``version``, ``zabbix_url``, ``zabbix_api_version`` (None until a
     backend connection succeeds), ``auth`` (ok / error / missing-env), and
-    ``categories`` (the configured daily_brief section names). On a degraded or
-    error result, ``detail`` carries the reason and ``categories_error`` the
-    category-parse failure (when that is the cause).
+    ``categories`` (the configured daily_brief section names), and ``read_only``
+    (True when ZABBIX_READ_ONLY removed the write tools). On a degraded or
+    error result, ``detail`` carries the reason, ``categories_error`` the
+    category-parse failure, and ``read_only_error`` an unrecognized
+    ZABBIX_READ_ONLY value (when that is the cause).
     """
 
     # Fixed shape: every key is present regardless of outcome, so callers can
@@ -403,7 +442,14 @@ def health_check() -> dict:
         "zabbix_api_version": None,
         "auth": "unknown",
         "categories": [],
+        "read_only": False,
     }
+
+    read_only, read_only_error = read_only_mode()
+    result["read_only"] = read_only
+    if read_only_error:
+        result["status"] = "degraded"
+        result["read_only_error"] = read_only_error
 
     # Category loading is local (no network), so report it regardless of whether
     # the Zabbix backend is reachable. A genuine parse error degrades the server;
@@ -545,7 +591,7 @@ def _daily_brief_text() -> tuple[str, bool]:
     return "\n".join(lines), had_error
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_TOOL)
 def daily_brief() -> str:
     """Morning patrol summary.
 
@@ -574,7 +620,7 @@ def daily_brief() -> str:
 # ------------------------------------------------------------------
 # Problems
 # ------------------------------------------------------------------
-@mcp.tool()
+@mcp.tool(annotations=_READ_TOOL)
 def get_problems(
     min_severity: int = 2,
     tag_name: str | None = None,
@@ -622,7 +668,7 @@ def get_problems(
 # ------------------------------------------------------------------
 # Hosts
 # ------------------------------------------------------------------
-@mcp.tool()
+@mcp.tool(annotations=_READ_TOOL)
 def get_hosts(
     role: str | None = None,
     tag_name: str | None = None,
@@ -664,7 +710,7 @@ def get_hosts(
 # ------------------------------------------------------------------
 # Items (current values)
 # ------------------------------------------------------------------
-@mcp.tool()
+@mcp.tool(annotations=_READ_TOOL)
 def get_host_items(host: str, search: str | None = None) -> str:
     """Get current item values for a host.
 
@@ -696,7 +742,7 @@ def get_host_items(host: str, search: str | None = None) -> str:
 # ------------------------------------------------------------------
 # Acknowledge
 # ------------------------------------------------------------------
-@mcp.tool()
+@mcp.tool(annotations=_ACK_TOOL)
 def acknowledge_problem(event_ids: str, message: str) -> str:
     """Acknowledge Zabbix problems and add a message (does not close them).
 
@@ -704,6 +750,7 @@ def acknowledge_problem(event_ids: str, message: str) -> str:
         event_ids: Comma-separated event IDs (from get_problems output)
         message: Acknowledgement message
     """
+    _refuse_if_read_only("acknowledge_problem")
     ids = [eid.strip() for eid in event_ids.split(",") if eid.strip()]
     if not ids:
         return "No event IDs provided."
@@ -721,7 +768,7 @@ def acknowledge_problem(event_ids: str, message: str) -> str:
 # ------------------------------------------------------------------
 # Maintenance
 # ------------------------------------------------------------------
-@mcp.tool()
+@mcp.tool(annotations=_MAINTENANCE_TOOL)
 def set_maintenance(
     since: str,
     till: str,
@@ -772,6 +819,7 @@ def set_maintenance(
     # (tag mode has no downstream empty check) or hit zapi-lib's empty-list
     # ZapiError (host mode) with a confusing message about hosts, not about
     # the whitespace that caused it.
+    _refuse_if_read_only("set_maintenance")
     location = location.strip() if location else None
     hosts = hosts.strip() if hosts else None
     if bool(location) == bool(hosts):
@@ -1064,7 +1112,7 @@ def _window_brief_line(m: dict, *, upcoming_start: int | None) -> str:
     return f"- {name}  until {till}  ({hosts_str})"
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ_TOOL)
 def get_maintenance_windows(include_expired: bool = False) -> str:
     """List Zabbix maintenance windows -- the read counterpart to set_maintenance.
 
@@ -1119,3 +1167,13 @@ def get_maintenance_windows(include_expired: bool = False) -> str:
         for m in sorted(buckets["expired"], key=lambda m: m.get("active_since", "")):
             lines.extend(_window_block(m, MAINT_HOST_DISPLAY_LIMIT))
     return "\n".join(lines)
+
+
+def _apply_read_only() -> None:
+    """Unregister the write tools when ZABBIX_READ_ONLY asks for it, so the model never sees them."""
+    if read_only_mode()[0]:
+        for name in WRITE_TOOLS:
+            mcp.remove_tool(name)
+
+
+_apply_read_only()

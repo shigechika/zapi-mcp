@@ -65,6 +65,7 @@ Set the following environment variables:
 | `ZABBIX_CATEGORIES_INI` | Path to a categories INI file for `daily_brief` (optional) | — |
 | `ZABBIX_BRIEF_RECENT_HOURS` | `daily_brief` "recent" window in hours; problems older than this are folded to a count | `24` |
 | `ZABBIX_BRIEF_PROBLEM_LIMIT` | Max active problems `daily_brief` fetches per call before counting the rest | `1000` |
+| `ZABBIX_READ_ONLY` | `true` (or `1`/`yes`/`on`) keeps `acknowledge_problem` and `set_maintenance` from being registered, so the model never sees them. Any other non-false value is also treated as read-only and reported by `health_check` | unset (write tools on) |
 
 The API user needs read permission for the host groups you query, plus
 acknowledge permission if you use `acknowledge_problem`, maintenance-write
@@ -151,6 +152,13 @@ Zabbix API and every other tool keeps working, so an API user can be handed
 to Claude for investigation without granting it any ability to change Zabbix
 configuration. Grant the permission only when acknowledging alerts or opening
 maintenance windows from Claude is part of the job.
+
+To keep the write tools away from the model altogether, set
+`ZABBIX_READ_ONLY=true`: the two tools are not registered, so a client never
+sees them, and they refuse to run if called anyway. This lets one Zabbix user
+serve both a read-only and a write-enabled MCP client. Every tool also carries
+MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`), so a
+client can tell read and write tools apart.
 
 ## Usage
 

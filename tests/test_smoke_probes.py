@@ -110,7 +110,7 @@ def test_tools_with_a_limit_are_probed_with_one():
     # returns an unbounded result without offering a limit would not be caught
     # here, so treat this as a tripwire for the known shape rather than a proof.
     bounded: list[str] = []
-    for chunk in source.split("@mcp.tool()")[1:]:
+    for chunk in re.split(r"@mcp\.tool\([^)]*\)", source)[1:]:
         match = re.search(r"^def ([a-z_0-9]+)\(", chunk, re.MULTILINE)
         if not match:
             continue
