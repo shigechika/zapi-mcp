@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.0](https://github.com/shigechika/zapi-mcp/compare/v0.12.0...v0.13.0) (2026-10-14)
+
+
+### Features
+
+* accept ZABBIX_API_TOKEN instead of ZABBIX_USER/ZABBIX_PASSWORD ([#90](https://github.com/shigechika/zapi-mcp/issues/90)) ([06441fa](https://github.com/shigechika/zapi-mcp/commit/06441fa0b004e29f99ac44acb136e5579659009f))
+* add ZABBIX_READ_ONLY and MCP tool annotations ([#88](https://github.com/shigechika/zapi-mcp/issues/88)) ([89a1e68](https://github.com/shigechika/zapi-mcp/commit/89a1e68a72a3f1efe6d19fd1102943185d3cf1f2))
+
 ## [0.12.0](https://github.com/shigechika/zapi-mcp/compare/v0.11.0...v0.12.0) (2026-09-29)
 
 
