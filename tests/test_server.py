@@ -1643,3 +1643,16 @@ def test_daily_brief_category_check_failure_sets_error_flag(monkeypatch, tmp_pat
     assert "## Active Problems (0; 1 hidden (disabled trigger, host or item))" in text
     assert "## Core Network (1 active problem; could not check for disabled triggers, so none hidden)" in text
     assert had_error is True
+
+
+def test_daily_brief_does_not_retry_failed_lookup_per_category(monkeypatch, tmp_path):
+    """After the shared lookup fails, each section reports it without asking trigger.get again."""
+    cats = tmp_path / "cats.ini"
+    cats.write_text("[a]\nname = A\ntag = role\ntag_value = a\n\n[b]\nname = B\ntag = role\ntag_value = b\n")
+    monkeypatch.setenv("ZABBIX_CATEGORIES_INI", str(cats))
+    r = make_router(results={"problem.get": [SAMPLE_PROBLEM], "trigger.get": RuntimeError("denied")})
+    with r:
+        text, had_error = server._daily_brief_text()
+    assert len([x for x in r.captured if x["payload"]["method"] == "trigger.get"]) == 1
+    assert text.count("could not check for disabled triggers, so none hidden") == 3
+    assert had_error is True

@@ -81,9 +81,9 @@ def make_router(results: dict | None = None, *, version: str = "6.0.0"):
             result = result(params)
             if isinstance(result, Exception):
                 return httpx.Response(200, json={"jsonrpc": "2.0", "error": {"message": str(result)}, "id": 1})
-        # Emulate `objectids` (problem.get): keep only the problems of those triggers.
+        # Emulate `objectids` (problem.get / event.get): keep only the rows of those triggers.
         oids = params.get("objectids")
-        if isinstance(result, list) and oids is not None:
+        if method in ("problem.get", "event.get") and isinstance(result, list) and oids is not None:
             result = [r for r in result if isinstance(r, dict) and r.get("objectid") in oids]
         # Emulate Zabbix server-side severity filtering so countOutput and limit
         # operate on the same filtered set the real API would (only problem.get /

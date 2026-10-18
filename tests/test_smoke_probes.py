@@ -239,3 +239,17 @@ def test_no_site_specific_literals_in_specs():
         f"address-like literals in smoke_probes.py: {hits}. Discover such arguments "
         "at run time (args_factory) rather than hardcoding them."
     )
+
+
+def test_get_problems_probe_accepts_hidden_suffix_and_flags_failed_check():
+    probe = smoke_probes.PROBES["get_problems"]
+
+    def ok(text):
+        return all(re.search(p, text, re.MULTILINE) for p in probe.must_match) and not any(
+            re.search(p, text, re.MULTILINE) for p in probe.must_not_match
+        )
+
+    assert ok("Active Problems (5):")
+    assert ok("Active Problems (showing 5 of 19; 92 hidden (disabled trigger, host or item)):")
+    assert ok("No active problems (1 hidden (disabled trigger, host or item)).")
+    assert not ok("Active Problems (5; could not check for disabled triggers, so none hidden):")

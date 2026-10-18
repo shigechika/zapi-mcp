@@ -410,10 +410,15 @@ def _count_hidden(
         params["severities"] = severities
     if tags:
         params["tags"] = tags
+    result = client.call("problem.get", params)
     try:
-        return int(client.call("problem.get", params))
+        return int(result)  # countOutput returns the count as a numeric string
     except (TypeError, ValueError) as e:
-        raise ZapiError(f"problem.get countOutput returned non-numeric: {e}") from e
+        raise ZapiError(f"problem.get countOutput returned non-numeric: {result!r}") from e
+
+
+# Passed as `hidden_ids` when the caller's shared lookup already failed: skip the retry.
+LOOKUP_FAILED: frozenset[str] = frozenset({"<lookup failed>"})
 
 
 def _fetch_problems_with_total(
@@ -423,7 +428,7 @@ def _fetch_problems_with_total(
     tags: list[dict] | None = None,
     limit: int | None = None,
     include_hidden: bool = False,
-    hidden_ids: set[str] | None = None,
+    hidden_ids: set[str] | frozenset[str] | None = None,
 ) -> tuple[list[dict], int, int | None]:
     """Fetch problems (capped at `limit`) plus the accurate total.
 
@@ -435,15 +440,17 @@ def _fetch_problems_with_total(
     rather than discarding everything.
 
     Problems on triggers the frontend hides (`_hidden_triggerids`; pass
-    `hidden_ids` to reuse a lookup) are left out of both the rows and the total
-    unless `include_hidden`. The third value is how many were left out: 0 when
+    `hidden_ids` to reuse a lookup, or LOOKUP_FAILED after a failed one) are left
+    out of both the rows and the total unless `include_hidden`. The third value is how many were left out: 0 when
     none, None when the lookup failed and nothing was left out.
     """
     if limit is None:
         limit = _brief_problem_limit()
     hidden: set[str] = set()
     n_hidden: int | None = 0
-    if not include_hidden:
+    if not include_hidden and hidden_ids is LOOKUP_FAILED:
+        n_hidden = None
+    elif not include_hidden:
         try:
             hidden = _hidden_triggerids(client) if hidden_ids is None else hidden_ids
             if hidden:
@@ -549,7 +556,7 @@ def _brief_problem_category(
     cat: Category,
     now_ts: int,
     recent_window: int,
-    hidden_ids: set[str] | None = None,
+    hidden_ids: set[str] | frozenset[str] | None = None,
 ) -> tuple[list[str], bool]:
     """Section lines, and whether the check for disabled triggers failed (rows are then shown fail-open)."""
     problems, total, n_hidden = _fetch_problems_with_total(
@@ -656,13 +663,12 @@ def _daily_brief_text() -> tuple[str, bool]:
 
     # Active problems (Warning and above), newest first; stale ones folded away.
     # One lookup of the triggers the frontend hides, shared with the problem categories below.
-    # None (lookup failed) makes each fetch retry it and report the failure in its own header.
     try:
-        hidden_ids: set[str] | None = _hidden_triggerids(client)
+        hidden_ids: set[str] | frozenset[str] = _hidden_triggerids(client)
     except ZapiError:
-        # No reset_client() here: the Active Problems fetch below retries the lookup
-        # and resets the client itself if the session is what failed.
-        hidden_ids = None
+        # No reset_client() here: if the session is what failed, the Active Problems
+        # fetch below fails too and resets the client. Each section reports the failure.
+        hidden_ids = LOOKUP_FAILED
     try:
         problems, total, n_hidden = _fetch_problems_with_total(
             client, severities=SEVERITY_WARNING_AND_ABOVE, hidden_ids=hidden_ids
@@ -771,9 +777,9 @@ def daily_brief() -> str:
     window (ZABBIX_BRIEF_RECENT_HOURS, default 24h) are folded to a count so a
     long-standing backlog of un-recovered fossils doesn't bury today's events.
     Section headers show the true total ('showing N of TOTAL' when capped).
-    As on the Zabbix frontend's Problems page, problems whose trigger, host or
-    item is disabled are left out; the header says how many (get_problems with
-    include_disabled=True lists them).
+    Problems whose trigger, host or item is disabled are left out (the Zabbix
+    frontend's Problems page hides them too); the header says how many
+    (get_problems with include_disabled=True lists them).
 
     The "## In Maintenance" section lists windows that are active now, plus
     windows starting later today -- cross-check these hosts before treating
@@ -802,9 +808,9 @@ def get_problems(
     Problems are listed newest-first and annotated with their age. The header
     shows the true total ('showing N of TOTAL' when the result is capped by
     `limit`), so a capped listing is never mistaken for the full picture.
-    As on the Zabbix frontend's Problems page, problems whose trigger, host or
-    item is disabled (for example a trigger silenced for a known outage) are
-    left out, and the header says how many.
+    Problems whose trigger, host or item is disabled (for example a trigger
+    silenced for a known outage) are left out, as the Zabbix frontend's Problems
+    page also does, and the header says how many.
 
     Args:
         min_severity: Minimum severity (0=Not classified, 1=Info, 2=Warning, 3=Average, 4=High, 5=Disaster)
