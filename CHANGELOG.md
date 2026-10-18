@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/shigechika/zapi-mcp/compare/v0.13.0...v0.14.0) (2026-10-18)
+
+
+### Features
+
+* hide problems on disabled triggers, hosts and items, as the frontend does ([#91](https://github.com/shigechika/zapi-mcp/issues/91)) ([70f48af](https://github.com/shigechika/zapi-mcp/commit/70f48afe41f021a09d650b7b2ca0b3d28ca6905f))
+
 ## [0.13.0](https://github.com/shigechika/zapi-mcp/compare/v0.12.0...v0.13.0) (2026-10-14)
 
 
