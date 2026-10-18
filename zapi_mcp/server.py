@@ -383,13 +383,48 @@ def _emit_problem_bucket(
         lines.append(f"- … and {len(stale)} older (stale; oldest {_fmt_time(oldest)})")
 
 
+def _hidden_triggerids(client: ZapiClient) -> set[str]:
+    """Ids of triggers in PROBLEM state that the Zabbix frontend hides.
+
+    problem.get returns the open problems of every trigger, including one that
+    is disabled or sits on a disabled host or item; the frontend's Problems page
+    shows only monitored triggers. A trigger disabled to silence a known outage
+    is therefore dropped here as it is there. A trigger whose open problem
+    outlives its PROBLEM value is not listed, so it stays visible (fail-open).
+    """
+    in_problem = client.call("trigger.get", {"output": ["triggerid"], "filter": {"value": 1}})
+    monitored = client.call("trigger.get", {"output": ["triggerid"], "filter": {"value": 1}, "monitored": True})
+    return {t["triggerid"] for t in in_problem} - {t["triggerid"] for t in monitored}
+
+
+def _count_hidden(
+    client: ZapiClient,
+    hidden_ids: set[str],
+    *,
+    severities: list[int] | None,
+    tags: list[dict] | None,
+) -> int:
+    """Open problems on `hidden_ids` that match the same filters as the listing."""
+    params: dict = {"countOutput": True, "suppressed": False, "objectids": sorted(hidden_ids)}
+    if severities:
+        params["severities"] = severities
+    if tags:
+        params["tags"] = tags
+    try:
+        return int(client.call("problem.get", params))
+    except (TypeError, ValueError) as e:
+        raise ZapiError(f"problem.get countOutput returned non-numeric: {e}") from e
+
+
 def _fetch_problems_with_total(
     client: ZapiClient,
     *,
     severities: list[int] | None = None,
     tags: list[dict] | None = None,
     limit: int | None = None,
-) -> tuple[list[dict], int]:
+    include_hidden: bool = False,
+    hidden_ids: set[str] | None = None,
+) -> tuple[list[dict], int, int | None]:
     """Fetch problems (capped at `limit`) plus the accurate total.
 
     `limit` defaults to the brief's configurable cap (ZABBIX_BRIEF_PROBLEM_LIMIT);
@@ -398,17 +433,42 @@ def _fetch_problems_with_total(
     'showing N of TOTAL' rather than silently truncating. If only the (secondary)
     count query fails, we keep the fetched rows and fall back to their count
     rather than discarding everything.
+
+    Problems on triggers the frontend hides (`_hidden_triggerids`; pass
+    `hidden_ids` to reuse a lookup) are left out of both the rows and the total
+    unless `include_hidden`. The third value is how many were left out: 0 when
+    none, None when the lookup failed and nothing was left out.
     """
     if limit is None:
         limit = _brief_problem_limit()
-    problems = client.get_problems(severities=severities, tags=tags, limit=limit)
-    if len(problems) < limit:
-        return problems, len(problems)
+    hidden: set[str] = set()
+    n_hidden: int | None = 0
+    if not include_hidden:
+        try:
+            hidden = _hidden_triggerids(client) if hidden_ids is None else hidden_ids
+            if hidden:
+                n_hidden = _count_hidden(client, hidden, severities=severities, tags=tags)
+        except ZapiError:
+            hidden, n_hidden = set(), None
+    want = limit + (n_hidden or 0)
+    fetched = client.get_problems(severities=severities, tags=tags, limit=want)
+    problems = [p for p in fetched if p.get("objectid") not in hidden][:limit]
+    if len(fetched) < want:
+        return problems, len(problems), n_hidden
     try:
-        total = client.count_problems(severities=severities, tags=tags)
+        total = client.count_problems(severities=severities, tags=tags) - (n_hidden or 0)
     except ZapiError:
         total = len(problems)
-    return problems, max(total, len(problems))
+    return problems, max(total, len(problems)), n_hidden
+
+
+def _hidden_fragment(n_hidden: int | None) -> str:
+    """Header suffix saying how many problems on disabled triggers were left out."""
+    if n_hidden is None:
+        return "; could not check for disabled triggers, so none hidden"
+    if n_hidden:
+        return f"; {n_hidden} hidden (disabled trigger, host or item)"
+    return ""
 
 
 # ------------------------------------------------------------------
@@ -474,10 +534,18 @@ def _load_categories_safe() -> tuple[list[Category], str | None]:
         return [], str(e)
 
 
-def _brief_problem_category(client: ZapiClient, cat: Category, now_ts: int, recent_window: int) -> list[str]:
-    problems, total = _fetch_problems_with_total(client, tags=[tag_filter(cat.tag, cat.tag_value)])
+def _brief_problem_category(
+    client: ZapiClient,
+    cat: Category,
+    now_ts: int,
+    recent_window: int,
+    hidden_ids: set[str] | None = None,
+) -> list[str]:
+    problems, total, n_hidden = _fetch_problems_with_total(
+        client, tags=[tag_filter(cat.tag, cat.tag_value)], hidden_ids=hidden_ids
+    )
     noun = "problem" if total == 1 else "problems"
-    lines = [f"\n## {cat.name} ({_count_fragment(len(problems), total)} active {noun})"]
+    lines = [f"\n## {cat.name} ({_count_fragment(len(problems), total)} active {noun}{_hidden_fragment(n_hidden)})"]
     if not problems:
         lines.append("No active problems.")
         return lines
@@ -576,9 +644,19 @@ def _daily_brief_text() -> tuple[str, bool]:
     had_error = False
 
     # Active problems (Warning and above), newest first; stale ones folded away.
+    # One lookup of the triggers the frontend hides, shared with the problem categories below.
+    # None (lookup failed) makes each fetch retry it and report the failure in its own header.
     try:
-        problems, total = _fetch_problems_with_total(client, severities=SEVERITY_WARNING_AND_ABOVE)
-        lines.append(f"\n## Active Problems ({_count_fragment(len(problems), total)})")
+        hidden_ids: set[str] | None = _hidden_triggerids(client)
+    except ZapiError:
+        hidden_ids = None
+    try:
+        problems, total, n_hidden = _fetch_problems_with_total(
+            client, severities=SEVERITY_WARNING_AND_ABOVE, hidden_ids=hidden_ids
+        )
+        if n_hidden is None:
+            had_error = True
+        lines.append(f"\n## Active Problems ({_count_fragment(len(problems), total)}{_hidden_fragment(n_hidden)})")
         if not problems:
             lines.append("No active problems.")
         else:
@@ -656,7 +734,7 @@ def _daily_brief_text() -> tuple[str, bool]:
             if cat.kind == "items":
                 lines.extend(_brief_item_category(client, cat))
             else:
-                lines.extend(_brief_problem_category(client, cat, now_ts, recent_window))
+                lines.extend(_brief_problem_category(client, cat, now_ts, recent_window, hidden_ids))
         except ZapiError as e:
             lines.append(f"\n## {cat.name}\nError: {e}")
             had_error = True
@@ -678,6 +756,9 @@ def daily_brief() -> str:
     window (ZABBIX_BRIEF_RECENT_HOURS, default 24h) are folded to a count so a
     long-standing backlog of un-recovered fossils doesn't bury today's events.
     Section headers show the true total ('showing N of TOTAL' when capped).
+    As on the Zabbix frontend's Problems page, problems whose trigger, host or
+    item is disabled are left out; the header says how many (get_problems with
+    include_disabled=True lists them).
 
     The "## In Maintenance" section lists windows that are active now, plus
     windows starting later today -- cross-check these hosts before treating
@@ -699,12 +780,16 @@ def get_problems(
     tag_name: str | None = None,
     tag_value: str | None = None,
     limit: int = 50,
+    include_disabled: bool = False,
 ) -> str:
     """Get active Zabbix problems, newest first.
 
     Problems are listed newest-first and annotated with their age. The header
     shows the true total ('showing N of TOTAL' when the result is capped by
     `limit`), so a capped listing is never mistaken for the full picture.
+    As on the Zabbix frontend's Problems page, problems whose trigger, host or
+    item is disabled (for example a trigger silenced for a known outage) are
+    left out, and the header says how many.
 
     Args:
         min_severity: Minimum severity (0=Not classified, 1=Info, 2=Warning, 3=Average, 4=High, 5=Disaster)
@@ -712,6 +797,8 @@ def get_problems(
         tag_value: Filter by tag value (optional, requires tag_name)
         limit: Maximum number of problems to return (floored at 1; when the result
             hits this cap a second count query is issued to report the true total)
+        include_disabled: Also list problems whose trigger, host or item is disabled
+            (default False, matching the Zabbix frontend)
     """
     if min_severity > MAX_SEVERITY:
         return "No problems at/above the requested severity."
@@ -719,17 +806,20 @@ def get_problems(
         client = _client()
         severities = list(range(max(min_severity, 0), 6))
         tags = [tag_filter(tag_name, tag_value)] if tag_name else None
-        problems, total = _fetch_problems_with_total(client, severities=severities, tags=tags, limit=max(1, limit))
+        problems, total, n_hidden = _fetch_problems_with_total(
+            client, severities=severities, tags=tags, limit=max(1, limit), include_hidden=include_disabled
+        )
     except KeyError as e:
         return _env_error_text(e)
     except ZapiError as e:
         reset_client()
         return f"Zabbix error: {e}"
+    hidden_frag = _hidden_fragment(n_hidden)
     if not problems:
-        return "No active problems."
+        return f"No active problems{' (' + hidden_frag[2:] + ')' if hidden_frag else ''}."
     now_ts = int(datetime.now().astimezone().timestamp())
     problems = sorted(problems, key=_clock, reverse=True)
-    lines = [f"Active Problems ({_count_fragment(len(problems), total)}):"]
+    lines = [f"Active Problems ({_count_fragment(len(problems), total)}{hidden_frag}):"]
     for p in problems:
         lines.append(_problem_line(p, now_ts, with_severity=True))
         tag_str = _fmt_tags(p.get("tags", []))

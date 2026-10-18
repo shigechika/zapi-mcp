@@ -23,7 +23,7 @@ Documentation: <https://shigechika.github.io/zapi-mcp/>
 |------|-------------|
 | `health_check` | Server version, Zabbix connectivity/auth, detected API version, and configured `daily_brief` categories — call at session start or after a timeout |
 | `daily_brief` | Morning patrol: active problems (Warning+), hosts currently in maintenance, plus one section per configured category |
-| `get_problems` | Active problems by severity and tag, newest-first with age; header shows the true total (`showing N of TOTAL` when capped); output includes `eventid` |
+| `get_problems` | Active problems by severity and tag, newest-first with age; header shows the true total (`showing N of TOTAL` when capped); problems on disabled triggers, hosts or items are hidden as in the Zabbix frontend (`include_disabled=True` lists them); output includes `eventid` |
 | `get_hosts` | List hosts filtered by role/tag/group, with IP and tags |
 | `get_host_items` | Current item values for a host (server-side host filter) |
 | `acknowledge_problem` | Acknowledge problems and add a message (does not close them) |

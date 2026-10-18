@@ -32,6 +32,7 @@ DEFAULT_RESULTS: dict[str, object] = {
     "event.get": [],
     "event.acknowledge": {"eventids": ["1"]},
     "maintenance.get": [],
+    "trigger.get": [],
 }
 
 
@@ -54,7 +55,9 @@ def _eventid_key(row: dict) -> int:
 def make_router(results: dict | None = None, *, version: str = "6.0.0"):
     """Return a respx router that answers JSON-RPC calls by method.
 
-    ``results`` overrides DEFAULT_RESULTS per method. ``version`` sets the
+    ``results`` overrides DEFAULT_RESULTS per method; a callable entry is
+    called with the request params and returns the rows, an exception entry
+    becomes a JSON-RPC error reply. ``version`` sets the
     apiinfo.version reply (controls the client's auth path).
     """
     table = dict(DEFAULT_RESULTS)
@@ -72,6 +75,14 @@ def make_router(results: dict | None = None, *, version: str = "6.0.0"):
             return httpx.Response(200, json={"jsonrpc": "2.0", "error": {"message": f"unknown {method}"}, "id": 1})
         result = table[method]
         params = payload.get("params") or {}
+        if isinstance(result, Exception):
+            return httpx.Response(200, json={"jsonrpc": "2.0", "error": {"message": str(result)}, "id": 1})
+        if callable(result):
+            result = result(params)
+        # Emulate `objectids` (problem.get): keep only the problems of those triggers.
+        oids = params.get("objectids")
+        if isinstance(result, list) and oids is not None:
+            result = [r for r in result if isinstance(r, dict) and r.get("objectid") in oids]
         # Emulate Zabbix server-side severity filtering so countOutput and limit
         # operate on the same filtered set the real API would (only problem.get /
         # event.get carry `severities`, so other methods are untouched).

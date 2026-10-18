@@ -20,7 +20,7 @@
 |------|------|
 | `health_check` | サーバーバージョン、Zabbix 接続/認証状況、検出された API バージョン、設定済みの `daily_brief` カテゴリ ― セッション開始時やタイムアウト後に呼ぶ |
 | `daily_brief` | 朝のパトロール：アクティブな問題（Warning 以上）、現在メンテナンス中のホスト、＋設定済みカテゴリごとのセクション |
-| `get_problems` | 重要度・タグでフィルタしたアクティブな問題を新しい順・経過時間付きで一覧（見出しに正確な総件数、上限超過時は `showing N of TOTAL`／出力に `eventid` を含む） |
+| `get_problems` | 重要度・タグでフィルタしたアクティブな問題を新しい順・経過時間付きで一覧（見出しに正確な総件数、上限超過時は `showing N of TOTAL`／無効なトリガー・ホスト・アイテムの問題は Zabbix の画面と同じく除く、`include_disabled=True` で含める／出力に `eventid` を含む） |
 | `get_hosts` | role/タグ/グループでフィルタしたホスト一覧（IP・タグ付き） |
 | `get_host_items` | ホストのアイテム現在値（サーバ側でホスト絞り込み） |
 | `acknowledge_problem` | 問題の acknowledge とメッセージ追加（クローズはしない） |

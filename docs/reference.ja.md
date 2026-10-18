@@ -71,12 +71,16 @@ Active Problems の直後にある `## In Maintenance` は、現在有効なメ�
 続いて、設定した `[section]` ごとにカテゴリのセクションが並び、閾値を超えた
 値には `⚠️` が付きます。
 
-### `get_problems(min_severity=2, tag_name=None, tag_value=None, limit=50)`
+### `get_problems(min_severity=2, tag_name=None, tag_value=None, limit=50, include_disabled=False)`
 
 アクティブな問題を新しい順・経過時間つきで返します。`limit` で打ち切られた場合は
 見出しが `Active Problems (showing N of TOTAL)`、そうでなければ `Active Problems (N)`
 になります。総数は推測ではなく件数クエリを別途投げて取るので正確です。出力には
 `eventid` が含まれ、これが `acknowledge_problem` の入力になります。
+
+トリガー・ホスト・アイテムのいずれかが無効な問題は、Zabbix の画面の「障害」一覧と
+同じく除き、見出しに件数を出します（`; 3 hidden (disabled trigger, host or item)`）。
+`include_disabled=True` でそれも含めて返します。
 
 深刻度: `0` 未分類、`1` 情報、`2` 警告、`3` 平均、`4` 重度、`5` 致命的。
 
@@ -190,6 +194,14 @@ zapi-mcp --brief    # daily_brief を標準出力へ（cron 向き）
 達することがあります。その場合、見出しは `showing N of TOTAL` になります。`N` は
 見えている数、`TOTAL` は存在する数です。比較するときは `TOTAL` 同士で比べてください。
 `N` を前回の `TOTAL` と比べてはいけません。
+
+## 無効にしたトリガーの問題
+
+トリガー・ホスト・アイテムを無効にしても開いている問題は閉じず、`problem.get` は
+返し続けます。Zabbix の画面は「障害」一覧からこれを隠します。`daily_brief` と
+`get_problems` も同じく隠すので、既知の停止を黙らせるために無効にしたトリガーは
+朝の要約から消えます。隠した件数は見出しに出ます。無効なトリガーの照会に失敗した
+ときは何も隠さず、見出しにそう書きます（`could not check for disabled triggers`）。
 
 ## 塩漬けの問題
 
