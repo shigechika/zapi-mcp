@@ -57,13 +57,16 @@ PROBES: dict[str, Probe] = {
     # what must hold is that the tool rendered one of its known answers.
     "get_problems": Probe(
         args={"min_severity": 2, "limit": 5},
+        # The count may carry a suffix: "; N hidden (disabled trigger, host or item)".
         must_match=(
-            r"^Active Problems \(showing \d+ of \d+\):"
-            r"|^Active Problems \(\d+\):"
+            r"^Active Problems \((showing \d+ of \d+|\d+)(; .*)?\):"
             r"|^No (active problems|problems at/above)",
         ),
         # The tool renders backend failures as ordinary text rather than raising.
-        must_not_match=(r"^(Zabbix error|Missing environment variable)",),
+        must_not_match=(
+            r"^(Zabbix error|Missing environment variable)",
+            r"could not check for disabled triggers",
+        ),
     ),
     # -- inventory ---------------------------------------------------------
     "get_hosts": Probe(
@@ -100,6 +103,7 @@ PROBES: dict[str, Probe] = {
             # meant to notice.
             r"^Error: ",
             r"^\(Categories not loaded:",
+            r"could not check for disabled triggers",
         ),
         timeout=300,
     ),

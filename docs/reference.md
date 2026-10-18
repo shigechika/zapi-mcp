@@ -73,13 +73,18 @@ expired ones.
 Category sections follow, one per configured `[section]`, with `⚠️` marking
 values past the threshold.
 
-### `get_problems(min_severity=2, tag_name=None, tag_value=None, limit=50)`
+### `get_problems(min_severity=2, tag_name=None, tag_value=None, limit=50, include_disabled=False)`
 
 Active problems, newest-first with age. The header reads
 `Active Problems (showing N of TOTAL)` when the result is capped by `limit`,
 and `Active Problems (N)` when it is not — a second count query is issued so
 the total is accurate rather than assumed. Output includes `eventid`, which is
 what `acknowledge_problem` takes.
+
+Problems whose trigger, host or item is disabled are left out, as on the
+Zabbix frontend's Problems page, and the header says how many
+(`; 3 hidden (disabled trigger, host or item)`). `include_disabled=True` lists
+them too.
 
 Severity: `0` Not classified, `1` Information, `2` Warning, `3` Average,
 `4` High, `5` Disaster.
@@ -197,6 +202,15 @@ Both `daily_brief` and `get_problems` may hit their fetch limit
 (`ZABBIX_BRIEF_PROBLEM_LIMIT`, `limit`). When they do, the header says
 `showing N of TOTAL` — `N` is what you can see, `TOTAL` is what exists. Compare
 `TOTAL` against `TOTAL`, never `N` against a previous `TOTAL`.
+
+## Problems on disabled triggers
+
+Disabling a trigger, host or item does not close its open problems, and
+`problem.get` keeps returning them; the Zabbix frontend hides them from its
+Problems page. `daily_brief` and `get_problems` hide them the same way, so a
+trigger disabled to silence a known outage drops out of the brief. The header
+counts what was hidden. If the lookup of disabled triggers fails, nothing is
+hidden and the header says so (`could not check for disabled triggers`).
 
 ## Stale problems
 
