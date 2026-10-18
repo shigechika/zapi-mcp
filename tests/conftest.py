@@ -56,8 +56,8 @@ def make_router(results: dict | None = None, *, version: str = "6.0.0"):
     """Return a respx router that answers JSON-RPC calls by method.
 
     ``results`` overrides DEFAULT_RESULTS per method; a callable entry is
-    called with the request params and returns the rows, an exception entry
-    becomes a JSON-RPC error reply. ``version`` sets the
+    called with the request params and returns the rows (or an exception), an
+    exception entry or return becomes a JSON-RPC error reply. ``version`` sets the
     apiinfo.version reply (controls the client's auth path).
     """
     table = dict(DEFAULT_RESULTS)
@@ -79,6 +79,8 @@ def make_router(results: dict | None = None, *, version: str = "6.0.0"):
             return httpx.Response(200, json={"jsonrpc": "2.0", "error": {"message": str(result)}, "id": 1})
         if callable(result):
             result = result(params)
+            if isinstance(result, Exception):
+                return httpx.Response(200, json={"jsonrpc": "2.0", "error": {"message": str(result)}, "id": 1})
         # Emulate `objectids` (problem.get): keep only the problems of those triggers.
         oids = params.get("objectids")
         if isinstance(result, list) and oids is not None:

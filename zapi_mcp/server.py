@@ -449,17 +449,27 @@ def _fetch_problems_with_total(
             if hidden:
                 n_hidden = _count_hidden(client, hidden, severities=severities, tags=tags)
         except ZapiError:
+            # Fail open without reset_client(): if the session itself is broken, the
+            # listing call below fails too and the caller resets the client there.
             hidden, n_hidden = set(), None
-    want = limit + (n_hidden or 0)
-    fetched = client.get_problems(severities=severities, tags=tags, limit=want)
-    problems = [p for p in fetched if p.get("objectid") not in hidden][:limit]
+    # Hidden rows are usually old leftovers, so start one step wider than `limit` and
+    # double until `limit` visible rows are in hand or nothing more can be hidden.
+    ceiling = limit + (n_hidden or 0)
+    want = min(ceiling, 2 * limit)
+    while True:
+        fetched = client.get_problems(severities=severities, tags=tags, limit=want)
+        visible = [p for p in fetched if p.get("objectid") not in hidden]
+        if len(visible) >= limit or len(fetched) < want or want >= ceiling:
+            break
+        want = min(ceiling, 2 * want)
+    problems = visible[:limit]
     if len(fetched) < want:
-        return problems, len(problems), n_hidden
+        return problems, len(visible), n_hidden
     try:
         total = client.count_problems(severities=severities, tags=tags) - (n_hidden or 0)
     except ZapiError:
-        total = len(problems)
-    return problems, max(total, len(problems)), n_hidden
+        total = len(visible)
+    return problems, max(total, len(visible)), n_hidden
 
 
 def _hidden_fragment(n_hidden: int | None) -> str:
@@ -540,7 +550,8 @@ def _brief_problem_category(
     now_ts: int,
     recent_window: int,
     hidden_ids: set[str] | None = None,
-) -> list[str]:
+) -> tuple[list[str], bool]:
+    """Section lines, and whether the check for disabled triggers failed (rows are then shown fail-open)."""
     problems, total, n_hidden = _fetch_problems_with_total(
         client, tags=[tag_filter(cat.tag, cat.tag_value)], hidden_ids=hidden_ids
     )
@@ -548,9 +559,9 @@ def _brief_problem_category(
     lines = [f"\n## {cat.name} ({_count_fragment(len(problems), total)} active {noun}{_hidden_fragment(n_hidden)})"]
     if not problems:
         lines.append("No active problems.")
-        return lines
+        return lines, n_hidden is None
     _emit_problem_bucket(lines, problems, now_ts, recent_window, with_severity=True)
-    return lines
+    return lines, n_hidden is None
 
 
 @mcp.tool(annotations=_READ_TOOL)
@@ -649,6 +660,8 @@ def _daily_brief_text() -> tuple[str, bool]:
     try:
         hidden_ids: set[str] | None = _hidden_triggerids(client)
     except ZapiError:
+        # No reset_client() here: the Active Problems fetch below retries the lookup
+        # and resets the client itself if the session is what failed.
         hidden_ids = None
     try:
         problems, total, n_hidden = _fetch_problems_with_total(
@@ -734,7 +747,9 @@ def _daily_brief_text() -> tuple[str, bool]:
             if cat.kind == "items":
                 lines.extend(_brief_item_category(client, cat))
             else:
-                lines.extend(_brief_problem_category(client, cat, now_ts, recent_window, hidden_ids))
+                cat_lines, check_failed = _brief_problem_category(client, cat, now_ts, recent_window, hidden_ids)
+                lines.extend(cat_lines)
+                had_error = had_error or check_failed
         except ZapiError as e:
             lines.append(f"\n## {cat.name}\nError: {e}")
             had_error = True

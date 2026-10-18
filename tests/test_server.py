@@ -1582,3 +1582,64 @@ def test_daily_brief_hides_disabled_trigger_problems_once_for_all_sections(monke
     assert "## Core Network (1 active problem; 1 hidden (disabled trigger, host or item))" in out
     # One lookup (two trigger.get calls) shared by Active Problems and the category.
     assert len([x for x in r.captured if x["payload"]["method"] == "trigger.get"]) == 2
+
+
+@freeze_time(FROZEN_NOW)
+def test_get_problems_total_counts_visible_rows_when_hidden_count_was_stale():
+    """Hidden problems closing between the count and the listing must not shrink the total to `limit`."""
+    now = _frozen_now_ts()
+    visible = [
+        dict(SAMPLE_PROBLEM, eventid=str(9 - i), objectid=str(90 - i), name=f"v{i}", clock=str(now - i))
+        for i in range(3)
+    ]
+    stale_hidden = [dict(SAMPLE_PROBLEM, eventid=str(100 + i), objectid="50") for i in range(3)]
+
+    def problems(params):
+        # The count of hidden problems still sees three; the listing no longer does.
+        return stale_hidden if params.get("objectids") else visible
+
+    r = make_router(
+        results={"problem.get": problems, "trigger.get": _triggers(["50", "90", "89", "88"], ["90", "89", "88"])}
+    )
+    with r:
+        out = _call(server.get_problems)(limit=2)
+    assert "Active Problems (showing 2 of 3; 3 hidden (disabled trigger, host or item)):" in out
+
+
+@freeze_time(FROZEN_NOW)
+def test_get_problems_does_not_fetch_whole_hidden_backlog():
+    """With many old hidden problems, a small listing stops widening once `limit` visible rows are in hand."""
+    now = _frozen_now_ts()
+    newest = dict(SAMPLE_PROBLEM, eventid="1000", objectid="1", name="visible-newest", clock=str(now - 1))
+    backlog = [dict(SAMPLE_PROBLEM, eventid=str(i), objectid="2", clock=str(now - 9999)) for i in range(1, 51)]
+    r = make_router(results={"problem.get": [newest, *backlog], "trigger.get": _triggers(["1", "2"], ["1"])})
+    with r:
+        out = _call(server.get_problems)(limit=1)
+    assert "visible-newest" in out
+    listing_limits = [
+        x["payload"]["params"]["limit"]
+        for x in r.captured
+        if x["payload"]["method"] == "problem.get" and "limit" in x["payload"]["params"]
+    ]
+    assert listing_limits == [2]
+
+
+@freeze_time(FROZEN_NOW)
+def test_daily_brief_category_check_failure_sets_error_flag(monkeypatch, tmp_path):
+    """A category whose disabled-trigger count fails is shown fail-open and marks the brief as failed."""
+    cats = tmp_path / "cats.ini"
+    cats.write_text("[core]\nname = Core Network\ntag = role\ntag_value = main\n")
+    monkeypatch.setenv("ZABBIX_CATEGORIES_INI", str(cats))
+    now = _frozen_now_ts()
+    row = dict(SAMPLE_PROBLEM, eventid="3", objectid="30", name="Silenced link down", clock=str(now - 30))
+
+    def problems(params):
+        if params.get("countOutput") and params.get("objectids") and params.get("tags"):
+            return RuntimeError("denied")
+        return [row]
+
+    with make_router(results={"problem.get": problems, "trigger.get": _triggers(["30"], [])}):
+        text, had_error = server._daily_brief_text()
+    assert "## Active Problems (0; 1 hidden (disabled trigger, host or item))" in text
+    assert "## Core Network (1 active problem; could not check for disabled triggers, so none hidden)" in text
+    assert had_error is True
