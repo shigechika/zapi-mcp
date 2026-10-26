@@ -117,6 +117,19 @@ GUI から起動した場合は通っていないことがあります。プラ�
 }
 ```
 
+### Codex
+
+```bash
+codex mcp add zapi-mcp \
+  --env ZABBIX_URL=https://zabbix.example.com \
+  --env ZABBIX_USER=api-user \
+  --env ZABBIX_PASSWORD=your-password \
+  --env ZABBIX_CATEGORIES_INI=/path/to/categories.ini \
+  -- zapi-mcp
+```
+
+stdio サーバーを起動できる MCP クライアントなら、どれでも同じ形で使えます。コマンドに `zapi-mcp` を指定し、環境変数 `ZABBIX_*` を設定してください。
+
 ### 直接実行
 
 ```bash
