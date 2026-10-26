@@ -118,6 +118,20 @@ shell usually has it, but a GUI-launched app may not; install
 }
 ```
 
+### Codex
+
+```bash
+codex mcp add zapi-mcp \
+  --env ZABBIX_URL=https://zabbix.example.com \
+  --env ZABBIX_USER=api-user \
+  --env ZABBIX_PASSWORD=your-password \
+  --env ZABBIX_CATEGORIES_INI=/path/to/categories.ini \
+  -- zapi-mcp
+```
+
+Any other MCP client that launches stdio servers works the same way: give it
+`zapi-mcp` as the command and set the `ZABBIX_*` variables in its environment.
+
 ### Direct execution
 
 ```bash

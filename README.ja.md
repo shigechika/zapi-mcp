@@ -151,8 +151,8 @@ tag_value = main
 にはメンテナンス書き込み権限が要る。**どちらか一方を付けなければ、その
 ツールだけが読み取り専用のまま**になる ― Zabbix API 呼び出しが失敗するだけで
 残りのツールはそのまま動くので、Zabbix の設定を変える権限を一切与えずに
-調査だけを Claude に任せられる。アラートの acknowledge やメンテナンス
-ウィンドウの作成を Claude にやらせたい場合にだけ権限を付与すること。
+調査だけを AI アシスタントに任せられる。アラートの acknowledge やメンテナンス
+ウィンドウの作成を AI アシスタントにやらせたい場合にだけ権限を付与すること。
 
 書き込みツールをモデルから完全に外すには `ZABBIX_READ_ONLY=true` を設定する。
 2 つのツールは登録されず（クライアントからも見えない）、呼ばれても実行を拒む。
@@ -220,6 +220,19 @@ GUI から起動した場合は通っていないことがあります。プラ�
   }
 }
 ```
+
+### Codex
+
+```bash
+codex mcp add zapi-mcp \
+  --env ZABBIX_URL=https://zabbix.example.com \
+  --env ZABBIX_USER=api-user \
+  --env ZABBIX_PASSWORD=your-password \
+  --env ZABBIX_CATEGORIES_INI=/path/to/categories.ini \
+  -- zapi-mcp
+```
+
+stdio サーバーを起動できる MCP クライアントなら、どれでも同じ形で使えます。コマンドに `zapi-mcp` を指定し、環境変数 `ZABBIX_*` を設定してください。
 
 ### 直接実行
 

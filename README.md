@@ -156,9 +156,9 @@ Two tools change state. Everything else only reads.
 `set_maintenance` needs maintenance-write permission. **Leave either off and
 the server stays read-only for that one tool**: the call fails against the
 Zabbix API and every other tool keeps working, so an API user can be handed
-to Claude for investigation without granting it any ability to change Zabbix
+to an AI assistant for investigation without granting it any ability to change Zabbix
 configuration. Grant the permission only when acknowledging alerts or opening
-maintenance windows from Claude is part of the job.
+maintenance windows through the assistant is part of the job.
 
 To keep the write tools away from the model altogether, set
 `ZABBIX_READ_ONLY=true`: the two tools are not registered, so a client never
@@ -226,6 +226,20 @@ Add to `claude_desktop_config.json`:
   }
 }
 ```
+
+### Codex
+
+```bash
+codex mcp add zapi-mcp \
+  --env ZABBIX_URL=https://zabbix.example.com \
+  --env ZABBIX_USER=api-user \
+  --env ZABBIX_PASSWORD=your-password \
+  --env ZABBIX_CATEGORIES_INI=/path/to/categories.ini \
+  -- zapi-mcp
+```
+
+Any other MCP client that launches stdio servers works the same way: give it
+`zapi-mcp` as the command and set the `ZABBIX_*` variables in its environment.
 
 ### Direct Execution
 
