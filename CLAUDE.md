@@ -17,7 +17,7 @@ uv run ruff format --check .        # format check
 ```
 
 This mirrors `.github/workflows/ci.yml` (separate `lint` and `test` jobs;
-`test` runs on Python 3.10/3.12/3.13 on Linux plus one Windows 3.12 smoke job
+`test` runs on Python 3.11–3.15 on Linux plus one Windows 3.14 smoke job
 to guard against stdio newline regressions).
 
 ## Architecture
@@ -77,9 +77,9 @@ between the tag, `__init__.py`, and both `server.json` paths, then gates the
 
 ## Conventions
 
-- Python 3.10+, `requires-python = ">=3.10"`: native `X | Y` union syntax is
+- Python 3.11+, `requires-python = ">=3.11"`: native `X | Y` union syntax is
   used directly in annotations (no `from __future__ import annotations`
-  needed, since 3.10 supports `|` at runtime).
+  needed, since 3.10+ supports `|` at runtime).
 - `ruff` lint rules: `E, F, I, W, UP`, line length 120.
 - Tests mock Zabbix's JSON-RPC endpoint exclusively via `respx`
   (`tests/conftest.py`'s `make_router`); there is no `unittest.mock` usage in
