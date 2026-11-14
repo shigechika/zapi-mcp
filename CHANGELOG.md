@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/shigechika/zapi-mcp/compare/v0.14.0...v0.15.0) (2026-11-14)
+
+
+### Features
+
+* drop Python 3.10 (EOL) and add Python 3.15 support ([#96](https://github.com/shigechika/zapi-mcp/issues/96)) ([3ee763b](https://github.com/shigechika/zapi-mcp/commit/3ee763bd0a4194ef04dfa05fff75b2e5ef2690aa))
+
 ## [0.14.0](https://github.com/shigechika/zapi-mcp/compare/v0.13.0...v0.14.0) (2026-10-18)
 
 
